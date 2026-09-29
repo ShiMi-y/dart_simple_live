@@ -86,6 +86,24 @@ class AppSettingsController extends GetxController {
     // ignore: invalid_use_of_protected_member
     shieldList.value = LocalStorageService.instance.shieldBox.values.toSet();
 
+    // ignore: invalid_use_of_protected_member
+    scUidList.value = LocalStorageService.instance.scUidBox.values.toSet();
+
+    scPersist.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kScPersist,
+      false,
+    );
+
+    chatScCount.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kChatScCount,
+      2,
+    );
+
+    chatScInline.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kChatScInline,
+      true,
+    );
+
     scaleMode.value = LocalStorageService.instance.getValue(
       LocalStorageService.kPlayerScaleMode,
       0,
@@ -394,6 +412,44 @@ class AppSettingsController extends GetxController {
   Future clearShieldList() async {
     shieldList.clear();
     await LocalStorageService.instance.shieldBox.clear();
+  }
+
+  /// SC常驻显示：倒计时结束后不消失
+  var scPersist = false.obs;
+  void setScPersist(bool e) {
+    scPersist.value = e;
+    LocalStorageService.instance.setValue(LocalStorageService.kScPersist, e);
+  }
+
+  /// 聊天区顶部固定显示的最近SC条数，0为关闭
+  var chatScCount = 2.obs;
+  void setChatScCount(int e) {
+    chatScCount.value = e;
+    LocalStorageService.instance.setValue(LocalStorageService.kChatScCount, e);
+  }
+
+  /// SC混入聊天流
+  var chatScInline = true.obs;
+  void setChatScInline(bool e) {
+    chatScInline.value = e;
+    LocalStorageService.instance.setValue(LocalStorageService.kChatScInline, e);
+  }
+
+  /// SC关注UID（哔哩哔哩），命中的发言始终以SC形式显示
+  RxSet<String> scUidList = <String>{}.obs;
+  void addScUid(String e) {
+    scUidList.add(e);
+    LocalStorageService.instance.scUidBox.put(e, e);
+  }
+
+  void removeScUid(String e) {
+    scUidList.remove(e);
+    LocalStorageService.instance.scUidBox.delete(e);
+  }
+
+  Future clearScUid() async {
+    scUidList.clear();
+    await LocalStorageService.instance.scUidBox.clear();
   }
 
   void setScaleMode(int value) {

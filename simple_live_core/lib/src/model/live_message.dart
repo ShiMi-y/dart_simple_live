@@ -30,12 +30,17 @@ class LiveMessage {
 
   /// 弹幕颜色
   final LiveMessageColor color;
+
+  /// 发送者ID
+  /// 目前仅哔哩哔哩提供，其他渠道为空字符串
+  final String userId;
   LiveMessage({
     required this.type,
     required this.userName,
     required this.message,
     this.data,
     required this.color,
+    this.userId = "",
   });
 
   @override
@@ -46,6 +51,7 @@ class LiveMessage {
       "message": message,
       "data": data.toString(),
       "color": color.toString(),
+      "userId": userId,
     });
   }
 }
@@ -94,6 +100,10 @@ class LiveSuperChatMessage {
   final DateTime endTime;
   final String backgroundColor;
   final String backgroundBottomColor;
+
+  /// 是否为本地生成的SC
+  /// 例如「特定UID的发言始终作为SC显示」功能生成的消息为true
+  final bool isCustom;
   LiveSuperChatMessage({
     required this.backgroundBottomColor,
     required this.backgroundColor,
@@ -103,6 +113,7 @@ class LiveSuperChatMessage {
     required this.price,
     required this.startTime,
     required this.userName,
+    this.isCustom = false,
   });
 
   @override
@@ -116,6 +127,7 @@ class LiveSuperChatMessage {
       "endTime": endTime,
       "backgroundColor": backgroundColor,
       "backgroundBottomColor": backgroundBottomColor,
+      "isCustom": isCustom,
     });
   }
 }

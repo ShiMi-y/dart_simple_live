@@ -10,10 +10,14 @@ class SuperChatCard extends StatefulWidget {
   final LiveSuperChatMessage message;
   final Function()? onExpire;
   final int? customCountdown;
+
+  /// 常驻模式：倒计时结束后不触发onExpire，卡片保留
+  final bool persist;
   const SuperChatCard(
     this.message, {
     required this.onExpire,
     this.customCountdown,
+    this.persist = false,
     Key? key,
   }) : super(key: key);
 
@@ -22,7 +26,7 @@ class SuperChatCard extends StatefulWidget {
 }
 
 class _SuperChatCardState extends State<SuperChatCard> {
-  late Timer timer;
+  Timer? timer;
 
   int countdown = 0;
 
@@ -33,15 +37,20 @@ class _SuperChatCardState extends State<SuperChatCard> {
 
     countdown = endTime - currentTime;
 
-    timer = Timer.periodic(const Duration(seconds: 1), timerCallback);
+    // 本地生成的SC没有倒计时，无需定时器
+    if (!widget.message.isCustom) {
+      timer = Timer.periodic(const Duration(seconds: 1), timerCallback);
+    }
 
     super.initState();
   }
 
   void timerCallback(e) {
     if (countdown <= 0) {
-      widget.onExpire?.call();
-      timer.cancel();
+      if (!widget.persist) {
+        widget.onExpire?.call();
+      }
+      timer?.cancel();
       return;
     }
 
@@ -53,6 +62,8 @@ class _SuperChatCardState extends State<SuperChatCard> {
   @override
   Widget build(BuildContext context) {
     final displayCountdown = widget.customCountdown ?? countdown;
+    final countdownText =
+        widget.persist && displayCountdown <= 0 ? "已结束" : "$displayCountdown";
     return ClipRRect(
       borderRadius: AppStyle.radius8,
       child: Container(
@@ -85,7 +96,9 @@ class _SuperChatCardState extends State<SuperChatCard> {
                           ),
                         ),
                         Text(
-                          "￥${widget.message.price}",
+                          widget.message.isCustom
+                              ? "SC关注"
+                              : "￥${widget.message.price}",
                           style: const TextStyle(
                             fontSize: 12,
                             color: Colors.grey,
@@ -94,13 +107,14 @@ class _SuperChatCardState extends State<SuperChatCard> {
                       ],
                     ),
                   ),
-                  Text(
-                    "$displayCountdown",
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey,
+                  if (!widget.message.isCustom)
+                    Text(
+                      countdownText,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey,
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
@@ -123,7 +137,7 @@ class _SuperChatCardState extends State<SuperChatCard> {
 
   @override
   void dispose() {
-    timer.cancel();
+    timer?.cancel();
     super.dispose();
   }
 }

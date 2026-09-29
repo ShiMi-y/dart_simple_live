@@ -108,6 +108,15 @@ class LocalStorageService extends GetxService {
   /// 显示SC
   static const String kPlayerShowSuperChat = "PlayerShowSuperChat";
 
+  /// SC常驻显示（倒计时结束后不消失）
+  static const String kScPersist = "ScPersist";
+
+  /// 聊天区顶部固定显示的最近SC条数
+  static const String kChatScCount = "ChatScCount";
+
+  /// SC混入聊天流
+  static const String kChatScInline = "ChatScInline";
+
   /// 播放器音量
   static const String kPlayerVolume = "PlayerVolume";
 
@@ -171,12 +180,18 @@ class LocalStorageService extends GetxService {
   late Box settingsBox;
   late Box<String> shieldBox;
 
+  /// SC关注UID（哔哩哔哩）
+  late Box<String> scUidBox;
+
   Future init() async {
     settingsBox = await Hive.openBox(
       "LocalStorage",
     );
     shieldBox = await Hive.openBox(
       "DanmuShield",
+    );
+    scUidBox = await Hive.openBox(
+      "SuperChatUid",
     );
   }
 

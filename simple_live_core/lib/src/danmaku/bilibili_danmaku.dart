@@ -194,10 +194,13 @@ class BiliBiliDanmaku implements LiveDanmaku {
           var color = asT<int?>(obj["info"][0][3]) ?? 0;
           if (obj["info"][2] != null && obj["info"][2].length != 0) {
             var username = obj["info"][2][1].toString();
+            // info[2][0] 为发送者UID，用于「特定UID的发言始终作为SC显示」
+            var uid = asT<int?>(obj["info"][2][0])?.toString() ?? "";
             var liveMsg = LiveMessage(
               type: LiveMessageType.chat,
               userName: username,
               message: message,
+              userId: uid,
               color: color == 0
                   ? LiveMessageColor.white
                   : LiveMessageColor.numberToColor(color),

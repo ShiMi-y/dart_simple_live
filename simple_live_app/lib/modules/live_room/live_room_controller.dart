@@ -204,6 +204,12 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   /// 接收到WebSocket信息
   void onWSMessage(LiveMessage msg) {
     if (msg.type == LiveMessageType.chat) {
+      // 「SC关注UID」命中的发言始终以SC形式显示，不再进入普通聊天行
+      if (isUidSuperChat(msg)) {
+        addSuperChat(buildUidSuperChat(msg));
+        return;
+      }
+
       if (messages.length > 200 && !disableAutoScroll.value) {
         messages.removeAt(0);
       }
@@ -251,7 +257,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     } else if (msg.type == LiveMessageType.online) {
       online.value = msg.data;
     } else if (msg.type == LiveMessageType.superChat) {
-      superChats.add(msg.data);
+      if (msg.data is LiveSuperChatMessage) {
+        addSuperChat(msg.data as LiveSuperChatMessage);
+      }
     }
   }
 
@@ -505,8 +513,70 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     }
   }
 
+  /// 添加一条SC
+  /// 除了进入SC列表，还会根据设置混入聊天流
+  void addSuperChat(LiveSuperChatMessage sc) {
+    if (superChats.length > 200) {
+      superChats.removeAt(0);
+    }
+    superChats.add(sc);
+
+    if (!AppSettingsController.instance.chatScInline.value) {
+      return;
+    }
+
+    if (messages.length > 200 && !disableAutoScroll.value) {
+      messages.removeAt(0);
+    }
+    messages.add(
+      LiveMessage(
+        type: LiveMessageType.superChat,
+        userName: sc.userName,
+        message: sc.message,
+        data: sc,
+        color: LiveMessageColor.white,
+      ),
+    );
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => chatScrollToBottom(),
+    );
+  }
+
+  /// 是否为「SC关注UID」的发言
+  /// 目前仅哔哩哔哩的弹幕携带UID
+  bool isUidSuperChat(LiveMessage msg) {
+    if (site.id != Constant.kBiliBili) {
+      return false;
+    }
+    if (msg.userId.isEmpty) {
+      return false;
+    }
+    return AppSettingsController.instance.scUidList.contains(msg.userId);
+  }
+
+  /// 将命中的普通发言转换为SC
+  LiveSuperChatMessage buildUidSuperChat(LiveMessage msg) {
+    var now = DateTime.now();
+    return LiveSuperChatMessage(
+      userName: msg.userName,
+      face: "",
+      message: msg.message,
+      price: 0,
+      startTime: now,
+      // 本地生成的SC没有过期时间，给一个远期时间避免被清理
+      endTime: now.add(const Duration(days: 3650)),
+      backgroundColor: "#8E5BFF",
+      backgroundBottomColor: "#6537D6",
+      isCustom: true,
+    );
+  }
+
   /// 移除掉已到期的SC
   void removeSuperChats() async {
+    // SC常驻模式：不因倒计时结束而移除
+    if (AppSettingsController.instance.scPersist.value) {
+      return;
+    }
     var now = DateTime.now().millisecondsSinceEpoch;
     superChats.value = superChats
         .where((x) => x.endTime.millisecondsSinceEpoch > now)

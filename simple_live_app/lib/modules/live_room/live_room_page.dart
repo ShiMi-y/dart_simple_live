@@ -468,38 +468,46 @@ class LiveRoomPage extends GetView<LiveRoomController> {
               child: TabBarView(
                 children: [
                   Obx(
-                    () => Stack(
+                    () => Column(
                       children: [
-                        ListView.separated(
-                          controller: controller.scrollController,
-                          separatorBuilder: (_, i) => Obx(
-                            () => SizedBox(
-                              // *2与原来的EdgeInsets.symmetric(vertical: )做兼容
-                              height: AppSettingsController
-                                      .instance.chatTextGap.value *
-                                  2,
-                            ),
-                          ),
-                          padding: AppStyle.edgeInsetsA12,
-                          itemCount: controller.messages.length,
-                          itemBuilder: (_, i) {
-                            var item = controller.messages[i];
-                            return buildMessageItem(item);
-                          },
-                        ),
-                        Visibility(
-                          visible: controller.disableAutoScroll.value,
-                          child: Positioned(
-                            right: 12,
-                            bottom: 12,
-                            child: ElevatedButton.icon(
-                              onPressed: () {
-                                controller.disableAutoScroll.value = false;
-                                controller.chatScrollToBottom();
-                              },
-                              icon: const Icon(Icons.expand_more),
-                              label: const Text("最新"),
-                            ),
+                        buildChatSuperChatBar(),
+                        Expanded(
+                          child: Stack(
+                            children: [
+                              ListView.separated(
+                                controller: controller.scrollController,
+                                separatorBuilder: (_, i) => Obx(
+                                  () => SizedBox(
+                                    // *2与原来的EdgeInsets.symmetric(vertical: )做兼容
+                                    height: AppSettingsController
+                                            .instance.chatTextGap.value *
+                                        2,
+                                  ),
+                                ),
+                                padding: AppStyle.edgeInsetsA12,
+                                itemCount: controller.messages.length,
+                                itemBuilder: (_, i) {
+                                  var item = controller.messages[i];
+                                  return buildMessageItem(item);
+                                },
+                              ),
+                              Visibility(
+                                visible: controller.disableAutoScroll.value,
+                                child: Positioned(
+                                  right: 12,
+                                  bottom: 12,
+                                  child: ElevatedButton.icon(
+                                    onPressed: () {
+                                      controller.disableAutoScroll.value =
+                                          false;
+                                      controller.chatScrollToBottom();
+                                    },
+                                    icon: const Icon(Icons.expand_more),
+                                    label: const Text("最新"),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -519,6 +527,16 @@ class LiveRoomPage extends GetView<LiveRoomController> {
   }
 
   Widget buildMessageItem(LiveMessage message) {
+    // SC混入聊天流
+    if (message.type == LiveMessageType.superChat &&
+        message.data is LiveSuperChatMessage) {
+      return SuperChatCard(
+        message.data as LiveSuperChatMessage,
+        onExpire: null,
+        persist: true,
+      );
+    }
+
     if (message.userName == "LiveSysMessage") {
       return Obx(
         () => Text(
@@ -594,6 +612,79 @@ class LiveRoomPage extends GetView<LiveRoomController> {
     );
   }
 
+  /// 聊天区顶部固定显示的最近SC
+  Widget buildChatSuperChatBar() {
+    var count = AppSettingsController.instance.chatScCount.value;
+    var list = controller.superChats;
+    if (count <= 0 || list.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    var start = list.length > count ? list.length - count : 0;
+    var items = list.sublist(start);
+    return Container(
+      color: Get.isDarkMode ? Colors.black26 : Colors.black.withAlpha(8),
+      padding: AppStyle.edgeInsetsA12.copyWith(top: 8, bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var item in items)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: buildChatSuperChatItem(item),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// 聊天区顶部的紧凑SC条目
+  Widget buildChatSuperChatItem(LiveSuperChatMessage item) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Utils.convertHexColor(item.backgroundColor),
+        borderRadius: AppStyle.radius8,
+      ),
+      padding: AppStyle.edgeInsetsA8,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  item.userName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.black333,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              Text(
+                item.isCustom ? "SC关注" : "￥${item.price}",
+                style: const TextStyle(
+                  color: Colors.grey,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            item.message,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget buildSuperChats() {
     return KeepAliveWrapper(
       child: Obx(
@@ -605,6 +696,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
             var item = controller.superChats[i];
             return SuperChatCard(
               item,
+              persist: AppSettingsController.instance.scPersist.value,
               onExpire: () {
                 controller.removeSuperChats();
               },

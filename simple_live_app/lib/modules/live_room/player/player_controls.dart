@@ -903,10 +903,14 @@ class PlayerSuperChatCard extends StatefulWidget {
   final LiveSuperChatMessage message;
   final VoidCallback onExpire;
   final int duration;
+
+  /// 常驻模式：倒计时结束后不消失，由外层控制生命周期
+  final bool persist;
   const PlayerSuperChatCard(
       {required this.message,
       required this.onExpire,
       required this.duration,
+      this.persist = false,
       Key? key})
       : super(key: key);
   @override
@@ -914,16 +918,19 @@ class PlayerSuperChatCard extends StatefulWidget {
 }
 
 class _PlayerSuperChatCardState extends State<PlayerSuperChatCard> {
-  late Timer timer;
+  Timer? timer;
   late int countdown;
   @override
   void initState() {
     super.initState();
     countdown = widget.duration;
+    if (widget.persist) {
+      return;
+    }
     timer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (countdown <= 1) {
         widget.onExpire();
-        timer.cancel();
+        t.cancel();
         return;
       }
       setState(() {
@@ -934,7 +941,7 @@ class _PlayerSuperChatCardState extends State<PlayerSuperChatCard> {
 
   @override
   void dispose() {
-    timer.cancel();
+    timer?.cancel();
     super.dispose();
   }
 
@@ -945,7 +952,8 @@ class _PlayerSuperChatCardState extends State<PlayerSuperChatCard> {
       child: SuperChatCard(
         widget.message,
         onExpire: () {},
-        customCountdown: countdown,
+        customCountdown: widget.persist ? null : countdown,
+        persist: widget.persist,
       ),
     );
   }
@@ -973,16 +981,25 @@ class _PlayerSuperChatOverlayState extends State<PlayerSuperChatOverlay> {
 
   void _addSC(LiveSuperChatMessage sc, {int? customSeconds}) {
     if (_displayed.any((e) => e.sc == sc)) return;
+    final persist = AppSettingsController.instance.scPersist.value;
     int showSeconds = customSeconds ?? 15;
     final expireAt = DateTime.now().add(Duration(seconds: showSeconds));
     final localSC = LocalDisplaySC(sc, expireAt, showSeconds);
     _displayed.add(localSC);
-    _timers[localSC] = Timer(Duration(seconds: showSeconds), () {
-      setState(() {
-        _displayed.remove(localSC);
-        _timers.remove(localSC)?.cancel();
+    if (persist) {
+      // 常驻模式：只保留最近的若干条，避免无限堆积
+      if (_displayed.length > 50) {
+        final removed = _displayed.removeAt(0);
+        _timers.remove(removed)?.cancel();
+      }
+    } else {
+      _timers[localSC] = Timer(Duration(seconds: showSeconds), () {
+        setState(() {
+          _displayed.remove(localSC);
+          _timers.remove(localSC)?.cancel();
+        });
       });
-    });
+    }
     setState(() {});
   }
 
@@ -1023,12 +1040,24 @@ class _PlayerSuperChatOverlayState extends State<PlayerSuperChatOverlay> {
 
   @override
   Widget build(BuildContext context) {
+    final persist = AppSettingsController.instance.scPersist.value;
+    if (persist && _timers.isNotEmpty) {
+      // 运行中切换到常驻模式时，取消已排队的自动移除
+      for (var t in _timers.values) {
+        t.cancel();
+      }
+      _timers.clear();
+    }
     final sorted = _displayed.toList()
       ..sort((a, b) => a.sc.endTime.compareTo(b.sc.endTime));
+    // 常驻模式下最多同时显示3条，避免遮挡播放器
+    final visible = persist && sorted.length > 3
+        ? sorted.sublist(sorted.length - 3)
+        : sorted;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (var localSC in sorted)
+        for (var localSC in visible)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: SizedBox(
@@ -1037,6 +1066,7 @@ class _PlayerSuperChatOverlayState extends State<PlayerSuperChatOverlay> {
                 message: localSC.sc,
                 onExpire: () {},
                 duration: localSC.duration,
+                persist: persist,
               ),
             ),
           ),

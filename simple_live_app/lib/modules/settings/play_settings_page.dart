@@ -1,9 +1,12 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:simple_live_app/app/app_style.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
+import 'package:simple_live_app/app/utils.dart';
+import 'package:simple_live_app/widgets/settings/settings_action.dart';
 import 'package:simple_live_app/widgets/settings/settings_card.dart';
 import 'package:simple_live_app/widgets/settings/settings_menu.dart';
 import 'package:simple_live_app/widgets/settings/settings_number.dart';
@@ -245,6 +248,144 @@ class PlaySettingsPage extends GetView<AppSettingsController> {
                   ),
                 ),
               ],
+            ),
+          ),
+          Padding(
+            padding: AppStyle.edgeInsetsA12.copyWith(top: 24),
+            child: Text(
+              "SC（醒目留言）",
+              style: Get.textTheme.titleSmall,
+            ),
+          ),
+          SettingsCard(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Obx(
+                  () => SettingsSwitch(
+                    title: "SC常驻显示",
+                    subtitle: "SC不再因倒计时结束而消失",
+                    value: controller.scPersist.value,
+                    onChanged: controller.setScPersist,
+                  ),
+                ),
+                AppStyle.divider,
+                Obx(
+                  () => SettingsSwitch(
+                    title: "SC混入聊天流",
+                    subtitle: "SC同时作为一条聊天消息显示",
+                    value: controller.chatScInline.value,
+                    onChanged: controller.setChatScInline,
+                  ),
+                ),
+                AppStyle.divider,
+                Obx(
+                  () => SettingsMenu<int>(
+                    title: "聊天区顶部显示SC",
+                    subtitle: "固定显示最近几条SC",
+                    value: controller.chatScCount.value,
+                    valueMap: const {
+                      0: "关闭",
+                      1: "1条",
+                      2: "2条",
+                      3: "3条",
+                      5: "5条",
+                    },
+                    onChanged: controller.setChatScCount,
+                  ),
+                ),
+                AppStyle.divider,
+                Obx(
+                  () => SettingsAction(
+                    title: "SC关注UID",
+                    subtitle: "哔哩哔哩：这些UID的发言始终作为SC显示",
+                    value: "${controller.scUidList.length}个",
+                    onTap: showScUidSheet,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void showScUidSheet() {
+    TextEditingController uidController = TextEditingController();
+
+    void addUid() {
+      var uid = uidController.text.trim();
+      if (uid.isEmpty) {
+        SmartDialog.showToast("请输入UID");
+        return;
+      }
+      if (int.tryParse(uid) == null) {
+        SmartDialog.showToast("UID必须为数字");
+        return;
+      }
+      controller.addScUid(uid);
+      uidController.text = "";
+    }
+
+    Utils.showBottomSheet(
+      title: "SC关注UID（哔哩哔哩）",
+      child: ListView(
+        padding: AppStyle.edgeInsetsA12,
+        children: [
+          TextField(
+            controller: uidController,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(
+              contentPadding: AppStyle.edgeInsetsH12,
+              border: const OutlineInputBorder(),
+              hintText: "请输入UID",
+              suffixIcon: TextButton.icon(
+                onPressed: addUid,
+                icon: const Icon(Icons.add),
+                label: const Text("添加"),
+              ),
+            ),
+            onSubmitted: (e) {
+              addUid();
+            },
+          ),
+          AppStyle.vGap12,
+          Obx(
+            () => Text(
+              "已添加${controller.scUidList.length}个UID（点击移除）",
+              style: Get.textTheme.titleSmall,
+            ),
+          ),
+          AppStyle.vGap12,
+          Obx(
+            () => Wrap(
+              runSpacing: 12,
+              spacing: 12,
+              children: controller.scUidList
+                  .map(
+                    (item) => InkWell(
+                      borderRadius: AppStyle.radius24,
+                      onTap: () {
+                        controller.removeScUid(item);
+                      },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey),
+                          borderRadius: AppStyle.radius24,
+                        ),
+                        padding: AppStyle.edgeInsetsH12.copyWith(
+                          top: 4,
+                          bottom: 4,
+                        ),
+                        child: Text(
+                          item,
+                          style: Get.textTheme.bodyMedium,
+                        ),
+                      ),
+                    ),
+                  )
+                  .toList(),
             ),
           ),
         ],
