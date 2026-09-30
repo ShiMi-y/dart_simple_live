@@ -1,0 +1,86 @@
+name: build-android-release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout dev
+        uses: actions/checkout@v6
+        with:
+          ref: dev
+
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: "zulu"
+          java-version: "17"
+          cache: "gradle"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: >-
+            platform-tools
+            platforms;android-36
+            build-tools;35.0.0
+            ndk;28.2.13676358
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: simple_live_app/.fvmrc
+          cache: true
+
+      - name: Configure Android JDK
+        run: flutter config --jdk-dir "$JAVA_HOME"
+
+      - name: Write signing config
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > simple_live_app/android/app/keystore.jks
+          cat > simple_live_app/android/key.properties <<EOF
+          storeFile=keystore.jks
+          storePassword=$STORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          EOF
+
+      - name: Restore packages
+        run: |
+          cd simple_live_app
+          flutter pub get
+
+      - name: Build APKs
+        run: |
+          cd simple_live_app
+          VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d+ -f1)
+          echo "VERSION=$VERSION"
+          mkdir -p ../dist
+          flutter build apk --release
+          cp build/app/outputs/flutter-apk/app-release.apk "../dist/simple_live_app-${VERSION}-universal.apk"
+          flutter build apk --release --split-per-abi
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "../dist/simple_live_app-${VERSION}-armeabi-v7a.apk"
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "../dist/simple_live_app-${VERSION}-arm64-v8a.apk"
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk "../dist/simple_live_app-${VERSION}-x86_64.apk"
+          ls -l ../dist
+
+      - name: Verify APK signature
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | head -1)
+          "$APKSIGNER" verify --print-certs dist/simple_live_app-*-arm64-v8a.apk | head -6
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-apk
+          path: dist/*.apk
