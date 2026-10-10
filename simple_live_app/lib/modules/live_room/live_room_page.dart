@@ -613,6 +613,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
   }
 
   /// 聊天区顶部固定显示的最近SC
+  /// 直接复用 [SuperChatCard]，与「SC」标签页及聊天流中的SC样式、字体、颜色完全一致
   Widget buildChatSuperChatBar() {
     var count = AppSettingsController.instance.chatScCount.value;
     var list = controller.superChats;
@@ -624,63 +625,27 @@ class LiveRoomPage extends GetView<LiveRoomController> {
     return Container(
       color: Get.isDarkMode ? Colors.black26 : Colors.black.withAlpha(8),
       padding: AppStyle.edgeInsetsA12.copyWith(top: 8, bottom: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (var item in items)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: buildChatSuperChatItem(item),
-            ),
-        ],
-      ),
-    );
-  }
-
-  /// 聊天区顶部的紧凑SC条目
-  Widget buildChatSuperChatItem(LiveSuperChatMessage item) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Utils.convertHexColor(item.backgroundColor),
-        borderRadius: AppStyle.radius8,
-      ),
-      padding: AppStyle.edgeInsetsA8,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      child: ConstrainedBox(
+        // 最多占用屏幕40%高度，条数多时可滚动，避免挤压聊天区
+        constraints: BoxConstraints(
+          maxHeight: Get.height * 0.4,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: Text(
-                  item.userName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AppColors.black333,
-                    fontSize: 12,
+              for (var item in items)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: SuperChatCard(
+                    item,
+                    onExpire: null,
+                    persist: true,
                   ),
                 ),
-              ),
-              Text(
-                item.isCustom ? "SC关注" : "￥${item.price}",
-                style: const TextStyle(
-                  color: Colors.grey,
-                  fontSize: 12,
-                ),
-              ),
             ],
           ),
-          const SizedBox(height: 2),
-          Text(
-            item.message,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 13,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
