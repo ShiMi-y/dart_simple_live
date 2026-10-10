@@ -111,11 +111,14 @@ class LocalStorageService extends GetxService {
   /// SC常驻显示（倒计时结束后不消失）
   static const String kScPersist = "ScPersist";
 
-  /// 聊天区顶部固定显示的最近SC条数
-  static const String kChatScCount = "ChatScCount";
+  /// 聊天流中内联SC的最大条数（2~5）
+  static const String kChatScInlineCount = "ChatScInlineCount";
 
   /// SC混入聊天流
   static const String kChatScInline = "ChatScInline";
+
+  /// 聊天区是否显示SC窗口
+  static const String kChatScBarVisible = "ChatScBarVisible";
 
   /// 播放器音量
   static const String kPlayerVolume = "PlayerVolume";

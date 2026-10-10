@@ -24,6 +24,10 @@ import 'package:simple_live_app/services/db_service.dart';
 import 'package:simple_live_app/services/follow_service.dart';
 import 'package:simple_live_app/widgets/desktop_refresh_button.dart';
 import 'package:simple_live_app/widgets/follow_user_item.dart';
+import 'package:simple_live_app/widgets/settings/settings_action.dart';
+import 'package:simple_live_app/widgets/settings/settings_card.dart';
+import 'package:simple_live_app/widgets/settings/settings_menu.dart';
+import 'package:simple_live_app/widgets/settings/settings_switch.dart';
 import 'package:simple_live_core/simple_live_core.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -55,6 +59,11 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   var followed = false.obs;
   var liveStatus = false.obs;
   RxList<LiveSuperChatMessage> superChats = RxList<LiveSuperChatMessage>();
+
+  /// SC窗口是否被临时隐藏
+  /// 点击SC窗口即隐藏（无需确认），本房间内有效；有新SC或重新进房会自动恢复。
+  /// 与设置项「显示SC窗口」相互独立，避免覆盖用户偏好。
+  var scBarDismissed = false.obs;
 
   /// 滚动控制
   final ScrollController scrollController = ScrollController();
@@ -178,6 +187,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   void refreshRoom() {
     //messages.clear();
     superChats.clear();
+    scBarDismissed.value = false;
     liveDanmaku.stop();
 
     loadData();
@@ -516,10 +526,11 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   /// 添加一条SC
   /// 除了进入SC列表，还会根据设置混入聊天流
   void addSuperChat(LiveSuperChatMessage sc) {
-    if (superChats.length > 200) {
-      superChats.removeAt(0);
-    }
+    // SC窗口保持的SC不设置条数上限（仅「SC常驻显示」关闭时会清理已到期的）
     superChats.add(sc);
+
+    // 用户点击隐藏SC窗口后，有新的SC时自动重新显示
+    scBarDismissed.value = false;
 
     if (!AppSettingsController.instance.chatScInline.value) {
       return;
@@ -537,6 +548,20 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         color: LiveMessageColor.white,
       ),
     );
+
+    // 聊天流中的内联SC保持独立上限（2~5条），超出时移除最旧的
+    var limit = AppSettingsController.instance.chatScInlineCount.value;
+    var scIndexes = <int>[];
+    for (var i = 0; i < messages.length; i++) {
+      if (messages[i].type == LiveMessageType.superChat) {
+        scIndexes.add(i);
+      }
+    }
+    // 从后往前删除，避免索引位移
+    for (var i = scIndexes.length - 1; i >= limit; i--) {
+      messages.removeAt(scIndexes[i]);
+    }
+
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => chatScrollToBottom(),
     );
@@ -818,6 +843,164 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     );
   }
 
+  /// SC设置（直播间-设置-更多设置）
+  void showScSettingsSheet() {
+    Utils.showBottomSheet(
+      title: "SC设置",
+      child: ListView(
+        padding: AppStyle.edgeInsetsA12,
+        children: [
+          SettingsCard(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Obx(
+                  () => SettingsSwitch(
+                    title: "SC常驻显示",
+                    subtitle: "SC不再因倒计时结束而消失",
+                    value: AppSettingsController.instance.scPersist.value,
+                    onChanged: AppSettingsController.instance.setScPersist,
+                  ),
+                ),
+                AppStyle.divider,
+                Obx(
+                  () => SettingsSwitch(
+                    title: "SC混入聊天流",
+                    subtitle: "SC同时作为一条聊天消息显示",
+                    value: AppSettingsController.instance.chatScInline.value,
+                    onChanged: AppSettingsController.instance.setChatScInline,
+                  ),
+                ),
+                AppStyle.divider,
+                Obx(
+                  () => SettingsMenu<int>(
+                    title: "聊天流内联SC条数",
+                    subtitle: "聊天流中最多保留几条SC",
+                    value:
+                        AppSettingsController.instance.chatScInlineCount.value,
+                    valueMap: const {
+                      2: "2条",
+                      3: "3条",
+                      4: "4条",
+                      5: "5条",
+                    },
+                    onChanged:
+                        AppSettingsController.instance.setChatScInlineCount,
+                  ),
+                ),
+                AppStyle.divider,
+                Obx(
+                  () => SettingsSwitch(
+                    title: "显示SC窗口",
+                    subtitle: "聊天区顶部的SC窗口，点击窗口即可隐藏",
+                    value:
+                        AppSettingsController.instance.chatScBarVisible.value,
+                    onChanged:
+                        AppSettingsController.instance.setChatScBarVisible,
+                  ),
+                ),
+                AppStyle.divider,
+                Obx(
+                  () => SettingsAction(
+                    title: "SC关注UID",
+                    subtitle: "哔哩哔哩：这些UID的发言始终作为SC显示",
+                    value:
+                        "${AppSettingsController.instance.scUidList.length}个",
+                    onTap: () {
+                      Get.back();
+                      showScUidSheet();
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// SC关注UID编辑（哔哩哔哩）
+  void showScUidSheet() {
+    TextEditingController uidController = TextEditingController();
+
+    void addUid() {
+      var uid = uidController.text.trim();
+      if (uid.isEmpty) {
+        SmartDialog.showToast("请输入UID");
+        return;
+      }
+      if (int.tryParse(uid) == null) {
+        SmartDialog.showToast("UID必须为数字");
+        return;
+      }
+      AppSettingsController.instance.addScUid(uid);
+      uidController.text = "";
+    }
+
+    Utils.showBottomSheet(
+      title: "SC关注UID（哔哩哔哩）",
+      child: ListView(
+        padding: AppStyle.edgeInsetsA12,
+        children: [
+          TextField(
+            controller: uidController,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(
+              contentPadding: AppStyle.edgeInsetsH12,
+              border: const OutlineInputBorder(),
+              hintText: "请输入UID",
+              suffixIcon: TextButton.icon(
+                onPressed: addUid,
+                icon: const Icon(Icons.add),
+                label: const Text("添加"),
+              ),
+            ),
+            onSubmitted: (e) {
+              addUid();
+            },
+          ),
+          AppStyle.vGap12,
+          Obx(
+            () => Text(
+              "已添加${AppSettingsController.instance.scUidList.length}个UID（点击移除）",
+              style: Get.textTheme.titleSmall,
+            ),
+          ),
+          AppStyle.vGap12,
+          Obx(
+            () => Wrap(
+              runSpacing: 12,
+              spacing: 12,
+              children: AppSettingsController.instance.scUidList
+                  .map(
+                    (item) => InkWell(
+                      borderRadius: AppStyle.radius24,
+                      onTap: () {
+                        AppSettingsController.instance.removeScUid(item);
+                      },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey),
+                          borderRadius: AppStyle.radius24,
+                        ),
+                        padding:
+                            AppStyle.edgeInsetsH12.copyWith(top: 4, bottom: 4),
+                        child: Text(
+                          item,
+                          style: Get.textTheme.bodyMedium,
+                        ),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void showDanmuShield() {
     TextEditingController keywordController = TextEditingController();
 
@@ -1051,6 +1234,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     liveDanmaku.stop();
     messages.clear();
     superChats.clear();
+    scBarDismissed.value = false;
     danmakuController?.clear();
 
     // 重新设置LiveDanmaku

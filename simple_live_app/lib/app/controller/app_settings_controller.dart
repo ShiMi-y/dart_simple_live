@@ -94,13 +94,18 @@ class AppSettingsController extends GetxController {
       false,
     );
 
-    chatScCount.value = LocalStorageService.instance.getValue(
-      LocalStorageService.kChatScCount,
-      2,
-    );
-
     chatScInline.value = LocalStorageService.instance.getValue(
       LocalStorageService.kChatScInline,
+      true,
+    );
+
+    chatScInlineCount.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kChatScInlineCount,
+      3,
+    );
+
+    chatScBarVisible.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kChatScBarVisible,
       true,
     );
 
@@ -421,18 +426,27 @@ class AppSettingsController extends GetxController {
     LocalStorageService.instance.setValue(LocalStorageService.kScPersist, e);
   }
 
-  /// 聊天区顶部固定显示的最近SC条数，0为关闭
-  var chatScCount = 2.obs;
-  void setChatScCount(int e) {
-    chatScCount.value = e;
-    LocalStorageService.instance.setValue(LocalStorageService.kChatScCount, e);
-  }
-
   /// SC混入聊天流
   var chatScInline = true.obs;
   void setChatScInline(bool e) {
     chatScInline.value = e;
     LocalStorageService.instance.setValue(LocalStorageService.kChatScInline, e);
+  }
+
+  /// 聊天流中内联SC的最大条数（2~5）
+  var chatScInlineCount = 3.obs;
+  void setChatScInlineCount(int e) {
+    chatScInlineCount.value = e;
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kChatScInlineCount, e);
+  }
+
+  /// 聊天区是否显示SC窗口（点击SC窗口可隐藏，有新的SC会自动重新显示）
+  var chatScBarVisible = true.obs;
+  void setChatScBarVisible(bool e) {
+    chatScBarVisible.value = e;
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kChatScBarVisible, e);
   }
 
   /// SC关注UID（哔哩哔哩），命中的发言始终以SC形式显示

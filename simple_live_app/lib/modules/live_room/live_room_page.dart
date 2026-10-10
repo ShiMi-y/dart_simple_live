@@ -613,39 +613,48 @@ class LiveRoomPage extends GetView<LiveRoomController> {
     );
   }
 
-  /// 聊天区顶部固定显示的最近SC
-  /// 直接复用 [SuperChatCard]，与「SC」标签页及聊天流中的SC样式、字体、颜色完全一致
+  /// 聊天区SC窗口
+  /// - 保持的SC不设置条数上限，样式复用 [SuperChatCard]，与「SC」标签页/聊天流完全一致
+  /// - 点击窗口即可隐藏（无需确认），有新的SC时会自动重新显示
   Widget buildChatSuperChatBar() {
-    var count = AppSettingsController.instance.chatScCount.value;
-    var list = controller.superChats;
-    if (count <= 0 || list.isEmpty) {
+    if (!AppSettingsController.instance.chatScBarVisible.value ||
+        controller.scBarDismissed.value) {
       return const SizedBox.shrink();
     }
-    var start = list.length > count ? list.length - count : 0;
-    var items = list.sublist(start);
-    return Container(
-      color: Get.isDarkMode ? Colors.black26 : Colors.black.withAlpha(8),
-      padding: AppStyle.edgeInsetsA12.copyWith(top: 8, bottom: 8),
-      child: ConstrainedBox(
-        // 最多占用屏幕40%高度，条数多时可滚动，避免挤压聊天区
-        constraints: BoxConstraints(
-          maxHeight: Get.height * 0.4,
-        ),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (var item in items)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: SuperChatCard(
-                    item,
-                    onExpire: null,
-                    persist: true,
-                    showAvatar: false,
+    var items = controller.superChats;
+    if (items.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        // 点击隐藏，无需确认（本房间临时隐藏，有新SC或重新进房自动恢复）
+        controller.scBarDismissed.value = true;
+      },
+      child: Container(
+        color: Get.isDarkMode ? Colors.black26 : Colors.black.withAlpha(8),
+        padding: AppStyle.edgeInsetsA12.copyWith(top: 8, bottom: 8),
+        child: ConstrainedBox(
+          // 最多占用屏幕40%高度，条数多时可滚动，避免挤压聊天区
+          constraints: BoxConstraints(
+            maxHeight: Get.height * 0.4,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var item in items)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: SuperChatCard(
+                      item,
+                      onExpire: null,
+                      persist: true,
+                      showAvatar: false,
+                    ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -760,6 +769,12 @@ class LiveRoomPage extends GetView<LiveRoomController> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              SettingsAction(
+                title: "SC设置",
+                subtitle: "常驻显示 / 混入聊天流 / SC关注UID",
+                onTap: controller.showScSettingsSheet,
+              ),
+              AppStyle.divider,
               SettingsAction(
                 title: "关键词屏蔽",
                 onTap: controller.showDanmuShield,
