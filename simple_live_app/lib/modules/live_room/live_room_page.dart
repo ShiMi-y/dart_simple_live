@@ -527,13 +527,14 @@ class LiveRoomPage extends GetView<LiveRoomController> {
   }
 
   Widget buildMessageItem(LiveMessage message) {
-    // SC混入聊天流
+    // SC混入聊天流（复用 SuperChatCard，样式与SC标签页一致；聊天区不显示头像）
     if (message.type == LiveMessageType.superChat &&
         message.data is LiveSuperChatMessage) {
       return SuperChatCard(
         message.data as LiveSuperChatMessage,
         onExpire: null,
         persist: true,
+        showAvatar: false,
       );
     }
 
@@ -641,6 +642,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                     item,
                     onExpire: null,
                     persist: true,
+                    showAvatar: false,
                   ),
                 ),
             ],

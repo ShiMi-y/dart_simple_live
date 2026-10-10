@@ -13,11 +13,16 @@ class SuperChatCard extends StatefulWidget {
 
   /// 常驻模式：倒计时结束后不触发onExpire，卡片保留
   final bool persist;
+
+  /// 是否显示头像
+  /// 聊天区展示SC时传false，节省横向空间
+  final bool showAvatar;
   const SuperChatCard(
     this.message, {
     required this.onExpire,
     this.customCountdown,
     this.persist = false,
+    this.showAvatar = true,
     Key? key,
   }) : super(key: key);
 
@@ -77,13 +82,15 @@ class _SuperChatCardState extends State<SuperChatCard> {
               padding: AppStyle.edgeInsetsA8,
               child: Row(
                 children: [
-                  NetImage(
-                    widget.message.face,
-                    width: 48,
-                    height: 48,
-                    borderRadius: 36,
-                  ),
-                  AppStyle.hGap12,
+                  if (widget.showAvatar) ...[
+                    NetImage(
+                      widget.message.face,
+                      width: 48,
+                      height: 48,
+                      borderRadius: 36,
+                    ),
+                    AppStyle.hGap12,
+                  ],
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
