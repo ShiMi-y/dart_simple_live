@@ -976,8 +976,6 @@ class _ChatSuperChatBarState extends State<ChatSuperChatBar> {
         }
         lastCount = items.length;
         var enabled = AppSettingsController.instance.chatScBarVisible.value;
-        debugPrint(
-            "[SC-BAR] enabled=$enabled hidden=$hidden count=${items.length}");
         if (!enabled || hidden || items.isEmpty) {
           return const SizedBox.shrink();
         }
