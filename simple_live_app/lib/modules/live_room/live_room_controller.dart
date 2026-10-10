@@ -60,11 +60,6 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   var liveStatus = false.obs;
   RxList<LiveSuperChatMessage> superChats = RxList<LiveSuperChatMessage>();
 
-  /// SC窗口是否被临时隐藏
-  /// 点击SC窗口即隐藏（无需确认），本房间内有效；有新SC或重新进房会自动恢复。
-  /// 与设置项「显示SC窗口」相互独立，避免覆盖用户偏好。
-  var scBarDismissed = false.obs;
-
   /// 滚动控制
   final ScrollController scrollController = ScrollController();
 
@@ -187,7 +182,6 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   void refreshRoom() {
     //messages.clear();
     superChats.clear();
-    scBarDismissed.value = false;
     liveDanmaku.stop();
 
     loadData();
@@ -528,9 +522,6 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   void addSuperChat(LiveSuperChatMessage sc) {
     // SC窗口保持的SC不设置条数上限（仅「SC常驻显示」关闭时会清理已到期的）
     superChats.add(sc);
-
-    // 用户点击隐藏SC窗口后，有新的SC时自动重新显示
-    scBarDismissed.value = false;
 
     if (!AppSettingsController.instance.chatScInline.value) {
       return;
@@ -1234,7 +1225,6 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     liveDanmaku.stop();
     messages.clear();
     superChats.clear();
-    scBarDismissed.value = false;
     danmakuController?.clear();
 
     // 重新设置LiveDanmaku

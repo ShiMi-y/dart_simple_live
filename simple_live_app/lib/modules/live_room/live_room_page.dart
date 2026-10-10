@@ -613,52 +613,9 @@ class LiveRoomPage extends GetView<LiveRoomController> {
     );
   }
 
-  /// 聊天区SC窗口
-  /// - 保持的SC不设置条数上限，样式复用 [SuperChatCard]，与「SC」标签页/聊天流完全一致
-  /// - 点击窗口即可隐藏（无需确认），有新的SC时会自动重新显示
+  /// 聊天区SC窗口（见 [ChatSuperChatBar]）
   Widget buildChatSuperChatBar() {
-    if (!AppSettingsController.instance.chatScBarVisible.value ||
-        controller.scBarDismissed.value) {
-      return const SizedBox.shrink();
-    }
-    var items = controller.superChats;
-    if (items.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () {
-        // 点击隐藏，无需确认（本房间临时隐藏，有新SC或重新进房自动恢复）
-        controller.scBarDismissed.value = true;
-      },
-      child: Container(
-        color: Get.isDarkMode ? Colors.black26 : Colors.black.withAlpha(8),
-        padding: AppStyle.edgeInsetsA12.copyWith(top: 8, bottom: 8),
-        child: ConstrainedBox(
-          // 最多占用屏幕40%高度，条数多时可滚动，避免挤压聊天区
-          constraints: BoxConstraints(
-            maxHeight: Get.height * 0.4,
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (var item in items)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: SuperChatCard(
-                      item,
-                      onExpire: null,
-                      persist: true,
-                      showAvatar: false,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+    return ChatSuperChatBar(controller: controller);
   }
 
   Widget buildSuperChats() {
@@ -986,5 +943,79 @@ class LiveRoomPage extends GetView<LiveRoomController> {
       return "${m.toString().padLeft(2, '0')}分钟${s.toString().padLeft(2, '0')}秒";
     }
     return "${s.toString().padLeft(2, '0')}秒";
+  }
+}
+
+/// 聊天区SC窗口
+/// - 保持的SC不设置条数上限，样式复用 [SuperChatCard]，与「SC」标签页/聊天流完全一致
+/// - 点击窗口即可隐藏（无需确认）；有新SC或重新进房会自动恢复
+class ChatSuperChatBar extends StatefulWidget {
+  final LiveRoomController controller;
+  const ChatSuperChatBar({required this.controller, Key? key})
+      : super(key: key);
+
+  @override
+  State<ChatSuperChatBar> createState() => _ChatSuperChatBarState();
+}
+
+class _ChatSuperChatBarState extends State<ChatSuperChatBar> {
+  /// 是否被点击隐藏（本页面内临时隐藏）
+  bool hidden = false;
+
+  /// 上一次的SC数量，用于判断是否有新SC
+  int lastCount = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(
+      () {
+        var items = widget.controller.superChats;
+        // 有新的SC时自动恢复显示
+        if (items.length > lastCount) {
+          hidden = false;
+        }
+        lastCount = items.length;
+        var enabled = AppSettingsController.instance.chatScBarVisible.value;
+        debugPrint(
+            "[SC-BAR] enabled=$enabled hidden=$hidden count=${items.length}");
+        if (!enabled || hidden || items.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            // 点击隐藏，无需确认
+            setState(() {
+              hidden = true;
+            });
+          },
+          child: Container(
+            color: Get.isDarkMode ? Colors.black26 : Colors.black.withAlpha(8),
+            padding: AppStyle.edgeInsetsA12.copyWith(top: 8, bottom: 8),
+            child: ConstrainedBox(
+              // 最多显示320高，条数多时窗口内可滚动，避免挤压聊天区
+              constraints: const BoxConstraints(maxHeight: 320),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var item in items)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: SuperChatCard(
+                          item,
+                          onExpire: null,
+                          persist: true,
+                          showAvatar: false,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 }
