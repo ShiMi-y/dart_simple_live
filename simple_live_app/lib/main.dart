@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -102,7 +103,8 @@ Future migrateData() async {
 ///
 /// 多开场景下，第二个实例无法打开已被占用的 Hive 文件，
 /// 因此这里依次尝试：默认目录 -> instances/inst_1 -> inst_2 ...
-/// 用「能否打开核心 box」来探测目录是否被其他实例占用，
+/// 用临时 Hive 实例「打开核心box」来探测目录是否被占用，
+/// （不能用全局 Hive 探测：它会缓存失败的 box，导致后续实例全部启动失败）
 /// 额外实例首次使用时会从主目录复制关注列表/标签/设置，保证多窗口数据一致。
 Future<void> initHive() async {
   if (Platform.isAndroid || Platform.isIOS) {
@@ -121,24 +123,39 @@ Future<void> initHive() async {
       if (i > 0) {
         await _copyInitialConfigIfEmpty(baseDir, dir);
       }
+      if (!await _probeHiveDirectory(dir.path)) {
+        continue;
+      }
       await Hive.initFlutter(dir.path);
-      // 探测：能打开核心box说明该目录未被其他实例占用
-      var probe = await Hive.openBox("LocalStorage");
-      await probe.close();
       instanceIndex = i;
       isPrimaryInstance = i == 0;
       Log.d("Instance index: $i, data dir: ${dir.path}");
       return;
     } catch (e) {
-      // 该目录被其他运行中的实例占用，换下一个
-      Log.logPrint("Instance dir #$i unavailable: $e");
-      try {
-        await Hive.close();
-      } catch (_) {}
+      Log.logPrint("Instance dir #$i error: $e");
     }
   }
   // 兜底：使用默认目录
   await Hive.initFlutter(baseDir.path);
+}
+
+/// 探测数据目录是否可用（未被其他运行中的实例占用）
+///
+/// 在一个独立 isolate 中尝试打开核心 box：
+/// isolate 拥有独立的全局 Hive 实例与内存，探测失败不会污染主 isolate 的 Hive，
+/// 也不会像直接探测那样把失败的 box 缓存下来导致后续启动失败。
+Future<bool> _probeHiveDirectory(String path) async {
+  try {
+    return await Isolate.run(() async {
+      Hive.init(path);
+      var box = await Hive.openBox("LocalStorage");
+      await box.close();
+      return true;
+    });
+  } catch (e) {
+    Log.logPrint("Probe failed for $path: $e");
+    return false;
+  }
 }
 
 /// 新实例目录首次使用时，从主目录复制基础数据（关注列表、设置）
