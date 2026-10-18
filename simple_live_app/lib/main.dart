@@ -41,10 +41,9 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await migrateData();
   MediaKit.ensureInitialized();
-  // 多开支持：为当前实例分配独立的Hive数据目录（桌面端）
-  var hiveDirectory = await getSafeHiveDirectory();
+  // 多开支持：为当前实例分配可用的Hive数据目录（桌面端）
+  await initHive();
   await initWindow();
-  await Hive.initFlutter(hiveDirectory);
   //初始化服务
   await initServices();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -99,51 +98,47 @@ Future migrateData() async {
   }
 }
 
-/// 当前实例占用的锁文件（保持打开直到进程退出，用于标记该实例目录已被使用）
-// ignore: unused_element
-RandomAccessFile? _instanceLockFile;
-
-/// 获取当前实例可用的Hive数据目录
+/// 初始化Hive，并为当前实例选择可用的数据目录（桌面端支持多开）
 ///
-/// 桌面端支持同时运行多个实例（各自观看不同直播）：
-/// - 主实例沿用默认目录；
-/// - 额外实例使用 `instances/inst_N` 子目录，用文件锁标记占用，
-///   避免多个进程同时打开同一批 Hive 文件导致锁冲突。
-/// 返回 null 表示使用平台默认目录（移动端）。
-Future<String?> getSafeHiveDirectory() async {
+/// 多开场景下，第二个实例无法打开已被占用的 Hive 文件，
+/// 因此这里依次尝试：默认目录 -> instances/inst_1 -> inst_2 ...
+/// 用「能否打开核心 box」来探测目录是否被其他实例占用，
+/// 额外实例首次使用时会从主目录复制关注列表/标签/设置，保证多窗口数据一致。
+Future<void> initHive() async {
   if (Platform.isAndroid || Platform.isIOS) {
-    return null;
+    await Hive.initFlutter();
+    return;
   }
   var baseDir = await getApplicationSupportDirectory();
   for (var i = 0; i < 30; i++) {
-    var candidateDir = i == 0
+    var dir = i == 0
         ? baseDir
         : Directory(p.join(baseDir.path, "instances", "inst_$i"));
     try {
-      if (!await candidateDir.exists()) {
-        await candidateDir.create(recursive: true);
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
       }
-      var lockFile = File(p.join(candidateDir.path, ".instance.lock"));
-      var raf = await lockFile.open(mode: FileMode.write);
-      await raf.lock(FileLock.exclusive);
-      _instanceLockFile = raf;
-
+      if (i > 0) {
+        await _copyInitialConfigIfEmpty(baseDir, dir);
+      }
+      await Hive.initFlutter(dir.path);
+      // 探测：能打开核心box说明该目录未被其他实例占用
+      var probe = await Hive.openBox("LocalStorage");
+      await probe.close();
       instanceIndex = i;
       isPrimaryInstance = i == 0;
-
-      // 新实例目录首次使用时，从主目录复制关注列表与设置
-      if (i > 0) {
-        await _copyInitialConfigIfEmpty(baseDir, candidateDir);
-      }
-      Log.d("Instance index: $i, data dir: ${candidateDir.path}");
-      return candidateDir.path;
+      Log.d("Instance index: $i, data dir: ${dir.path}");
+      return;
     } catch (e) {
-      // 该目录已被其他运行中的实例占用，尝试下一个序号
-      continue;
+      // 该目录被其他运行中的实例占用，换下一个
+      Log.logPrint("Instance dir #$i unavailable: $e");
+      try {
+        await Hive.close();
+      } catch (_) {}
     }
   }
   // 兜底：使用默认目录
-  return baseDir.path;
+  await Hive.initFlutter(baseDir.path);
 }
 
 /// 新实例目录首次使用时，从主目录复制基础数据（关注列表、设置）
