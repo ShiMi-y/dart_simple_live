@@ -834,6 +834,30 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     );
   }
 
+  /// 新开一个窗口（多开），用于同时观看多个直播
+  void openNewInstance() {
+    if (Platform.isAndroid || Platform.isIOS) {
+      SmartDialog.showToast("当前平台不支持多开");
+      return;
+    }
+    try {
+      if (Platform.isMacOS) {
+        // macOS 需要通过 open 启动新的 App 实例
+        Process.run("open", ["-n", "-a", Platform.resolvedExecutable]);
+      } else {
+        Process.start(
+          Platform.resolvedExecutable,
+          const [],
+          mode: ProcessStartMode.detached,
+        );
+      }
+      SmartDialog.showToast("已新开一个窗口");
+    } catch (e) {
+      Log.logPrint(e);
+      SmartDialog.showToast("新开窗口失败：$e");
+    }
+  }
+
   /// SC设置（直播间-设置-更多设置）
   void showScSettingsSheet() {
     Utils.showBottomSheet(

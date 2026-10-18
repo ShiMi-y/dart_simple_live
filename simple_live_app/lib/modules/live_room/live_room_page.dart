@@ -732,6 +732,17 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                 onTap: controller.showScSettingsSheet,
               ),
               AppStyle.divider,
+              if (Platform.isWindows || Platform.isMacOS || Platform.isLinux)
+                Column(
+                  children: [
+                    SettingsAction(
+                      title: "新开窗口",
+                      subtitle: "同时观看多个直播（多开）",
+                      onTap: controller.openNewInstance,
+                    ),
+                    AppStyle.divider,
+                  ],
+                ),
               SettingsAction(
                 title: "关键词屏蔽",
                 onTap: controller.showDanmuShield,
