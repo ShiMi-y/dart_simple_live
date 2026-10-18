@@ -8,6 +8,7 @@ import 'package:network_info_plus/network_info_plus.dart';
 import 'package:simple_live_app/app/constant.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/event_bus.dart';
+import 'package:simple_live_app/app/instance.dart';
 import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/models/db/follow_user.dart';
@@ -41,15 +42,22 @@ class SyncService extends GetxService {
   void onInit() {
     Log.d('TVService init');
     deviceId = (const Uuid().v4()).split('-').first;
-    listenUDP();
-    initServer();
+    // 多开时只有主实例提供本地同步服务，避免端口冲突
+    if (isPrimaryInstance) {
+      listenUDP();
+      initServer();
+    }
     super.onInit();
   }
 
   /// 监听其他端UDP广播的回复
   void listenUDP() async {
-    udp = await UDP.bind(Endpoint.any(port: const Port(udpPort)));
-    udp!.asStream().listen(listenUdp);
+    try {
+      udp = await UDP.bind(Endpoint.any(port: const Port(udpPort)));
+      udp!.asStream().listen(listenUdp);
+    } catch (e) {
+      Log.logPrint("UDP bind failed: $e");
+    }
   }
 
   void listenUdp(Datagram? datagram) {
@@ -91,7 +99,7 @@ class SyncService extends GetxService {
 
   /// 发送UDP广播至其他端
   void sendHello() async {
-    await udp!.send(
+    await udp?.send(
       json.encode({
         "id": deviceId,
         "type": "hello",
@@ -118,7 +126,7 @@ class SyncService extends GetxService {
       //"port": httpPort,
     };
 
-    await udp!.send(
+    await udp?.send(
       json.encode(data).codeUnits,
       Endpoint.broadcast(
         port: const Port(udpPort),

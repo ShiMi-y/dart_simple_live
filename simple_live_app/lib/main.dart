@@ -14,6 +14,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:simple_live_app/app/app_style.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
+import 'package:simple_live_app/app/instance.dart';
 import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/app/utils/listen_fourth_button.dart';
@@ -39,13 +40,11 @@ import 'package:dynamic_color/dynamic_color.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await migrateData();
-  await initWindow();
   MediaKit.ensureInitialized();
-  await Hive.initFlutter(
-    (!Platform.isAndroid && !Platform.isIOS)
-        ? (await getApplicationSupportDirectory()).path
-        : null,
-  );
+  // 多开支持：为当前实例分配独立的Hive数据目录（桌面端）
+  var hiveDirectory = await getSafeHiveDirectory();
+  await initWindow();
+  await Hive.initFlutter(hiveDirectory);
   //初始化服务
   await initServices();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -100,17 +99,94 @@ Future migrateData() async {
   }
 }
 
+/// 当前实例占用的锁文件（保持打开直到进程退出，用于标记该实例目录已被使用）
+// ignore: unused_element
+RandomAccessFile? _instanceLockFile;
+
+/// 获取当前实例可用的Hive数据目录
+///
+/// 桌面端支持同时运行多个实例（各自观看不同直播）：
+/// - 主实例沿用默认目录；
+/// - 额外实例使用 `instances/inst_N` 子目录，用文件锁标记占用，
+///   避免多个进程同时打开同一批 Hive 文件导致锁冲突。
+/// 返回 null 表示使用平台默认目录（移动端）。
+Future<String?> getSafeHiveDirectory() async {
+  if (Platform.isAndroid || Platform.isIOS) {
+    return null;
+  }
+  var baseDir = await getApplicationSupportDirectory();
+  for (var i = 0; i < 30; i++) {
+    var candidateDir = i == 0
+        ? baseDir
+        : Directory(p.join(baseDir.path, "instances", "inst_$i"));
+    try {
+      if (!await candidateDir.exists()) {
+        await candidateDir.create(recursive: true);
+      }
+      var lockFile = File(p.join(candidateDir.path, ".instance.lock"));
+      var raf = await lockFile.open(mode: FileMode.write);
+      await raf.lock(FileLock.exclusive);
+      _instanceLockFile = raf;
+
+      instanceIndex = i;
+      isPrimaryInstance = i == 0;
+
+      // 新实例目录首次使用时，从主目录复制关注列表与设置
+      if (i > 0) {
+        await _copyInitialConfigIfEmpty(baseDir, candidateDir);
+      }
+      Log.d("Instance index: $i, data dir: ${candidateDir.path}");
+      return candidateDir.path;
+    } catch (e) {
+      // 该目录已被其他运行中的实例占用，尝试下一个序号
+      continue;
+    }
+  }
+  // 兜底：使用默认目录
+  return baseDir.path;
+}
+
+/// 新实例目录首次使用时，从主目录复制基础数据（关注列表、设置）
+Future<void> _copyInitialConfigIfEmpty(
+  Directory baseDir,
+  Directory targetDir,
+) async {
+  try {
+    var filesToCopy = [
+      "followuser.hive",
+      "followusertag.hive",
+      "localstorage.hive",
+    ];
+    for (var fileName in filesToCopy) {
+      var src = File(p.join(baseDir.path, fileName));
+      var dst = File(p.join(targetDir.path, fileName));
+      if (await src.exists() && !await dst.exists()) {
+        await src.copy(dst.path);
+      }
+    }
+  } catch (e) {
+    Log.logPrint("Copy initial config error: $e");
+  }
+}
+
 Future initWindow() async {
   if (!(Platform.isMacOS || Platform.isWindows || Platform.isLinux)) {
     return;
   }
   await windowManager.ensureInitialized();
-  WindowOptions windowOptions = const WindowOptions(
-    minimumSize: Size(280, 280),
+  WindowOptions windowOptions = WindowOptions(
+    minimumSize: const Size(280, 280),
     center: true,
-    title: "Simple Live",
+    // 多开时在标题上标注实例序号，便于区分窗口
+    title: instanceIndex > 0 ? "Simple Live (实例 ${instanceIndex + 1})" : "Simple Live",
   );
   windowManager.waitUntilReadyToShow(windowOptions, () async {
+    // 多开时错开窗口位置，方便并排查看多个直播
+    if (instanceIndex > 0) {
+      await windowManager.setPosition(
+        Offset(70.0 * instanceIndex, 50.0 * instanceIndex),
+      );
+    }
     await windowManager.show();
     await windowManager.focus();
   });
