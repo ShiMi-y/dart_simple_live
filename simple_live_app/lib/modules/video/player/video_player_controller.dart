@@ -119,7 +119,10 @@ class VideoPlayerController extends BaseController {
       );
       qualityDesc.value = playUrl.qualityDesc;
       qualitys.assignAll(playUrl.acceptQuality);
-      await player.open(Media(playUrl.url), play: true);
+      await player.open(
+        Media(playUrl.url, httpHeaders: mediaHeaders),
+        play: true,
+      );
       await _loadDanmaku();
     } catch (e) {
       handleError(e, showPageError: true);
@@ -239,7 +242,10 @@ class VideoPlayerController extends BaseController {
       danmakuController?.clear();
       _danmakuIndex = _findIndex(current);
       _lastPosition = current;
-      await player.open(Media(playUrl.url), play: wasPlaying);
+      await player.open(
+        Media(playUrl.url, httpHeaders: mediaHeaders),
+        play: wasPlaying,
+      );
       await player.seek(current);
     } catch (e) {
       handleError(e);
@@ -247,6 +253,13 @@ class VideoPlayerController extends BaseController {
       pageLoadding.value = false;
     }
   }
+
+  /// 哔哩哔哩CDN会校验 Referer，缺失将返回403
+  Map<String, String> get mediaHeaders => {
+        "Referer": "https://www.bilibili.com",
+        "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+      };
 
   /// 桌面端全屏切换
   Future<void> toggleFullscreen() async {

@@ -940,17 +940,35 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     TextEditingController uidController = TextEditingController();
 
     void addUid() {
-      var uid = uidController.text.trim();
-      if (uid.isEmpty) {
+      var input = uidController.text.trim();
+      if (input.isEmpty) {
         SmartDialog.showToast("请输入UID");
         return;
       }
-      if (int.tryParse(uid) == null) {
-        SmartDialog.showToast("UID必须为数字");
-        return;
+      // 支持批量：英文逗号/中文逗号/分号/空格/换行 分隔
+      var parts = input
+          .split(RegExp(r'[,，;；\s]+'))
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+      var added = 0;
+      var invalid = 0;
+      for (var uid in parts) {
+        if (int.tryParse(uid) == null) {
+          invalid++;
+          continue;
+        }
+        AppSettingsController.instance.addScUid(uid);
+        added++;
       }
-      AppSettingsController.instance.addScUid(uid);
       uidController.text = "";
+      if (added == 0) {
+        SmartDialog.showToast("UID必须为数字");
+      } else if (invalid == 0) {
+        SmartDialog.showToast("已添加 $added 个UID");
+      } else {
+        SmartDialog.showToast("已添加 $added 个UID，忽略 $invalid 个非数字项");
+      }
     }
 
     Utils.showBottomSheet(
@@ -960,11 +978,12 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         children: [
           TextField(
             controller: uidController,
-            keyboardType: TextInputType.number,
+            keyboardType: TextInputType.text,
             decoration: InputDecoration(
               contentPadding: AppStyle.edgeInsetsH12,
               border: const OutlineInputBorder(),
-              hintText: "请输入UID",
+              hintText: "请输入UID，多个用逗号分隔",
+              helperText: "例如：123456, 789012（支持中英文逗号/分号/空格/换行）",
               suffixIcon: TextButton.icon(
                 onPressed: addUid,
                 icon: const Icon(Icons.add),
