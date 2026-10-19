@@ -864,10 +864,16 @@ class PlayerController extends BaseController
     } catch (e) {
       Log.logPrint("重置播放器系统状态失败: $e");
     }
-    try {
-      await player.dispose();
-    } catch (e) {
-      Log.logPrint("销毁播放器失败: $e");
-    }
+    // 【闪退修复】返回时若立即销毁播放器，视频纹理会在路由返回动画期间被释放，
+    // Windows 上会触发 flutter_windows.dll 访问冲突(0xc0000005)导致闪退。
+    // 这里延后销毁，等页面返回动画结束、纹理不再被合成器引用后再释放。
+    var disposingPlayer = player;
+    Future.delayed(const Duration(milliseconds: 600), () async {
+      try {
+        await disposingPlayer.dispose();
+      } catch (e) {
+        Log.logPrint("销毁播放器失败: $e");
+      }
+    });
   }
 }
