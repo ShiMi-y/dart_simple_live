@@ -36,6 +36,12 @@ class RoutePath {
   /// 我的关注
   static const kFollowUser = "/user/follow";
 
+  /// 视频播放（AV/BV）
+  static const kVideo = "/other/video";
+
+  /// 视频播放页
+  static const kVideoPlayer = "/video/player";
+
   /// 工具箱
   static const kTools = "/other/tools";
 

@@ -19,6 +19,10 @@ import 'package:simple_live_app/modules/sync/local_sync/device/sync_device_contr
 import 'package:simple_live_app/modules/sync/local_sync/device/sync_device_page.dart';
 import 'package:simple_live_app/modules/sync/local_sync/scan_qr/sync_scan_qr_controller.dart';
 import 'package:simple_live_app/modules/sync/local_sync/scan_qr/sync_scan_qr_page.dart';
+import 'package:simple_live_app/modules/video/player/video_player_controller.dart';
+import 'package:simple_live_app/modules/video/player/video_player_page.dart';
+import 'package:simple_live_app/modules/video/video_controller.dart';
+import 'package:simple_live_app/modules/video/video_page.dart';
 import 'package:simple_live_app/modules/mine/parse/parse_controller.dart';
 import 'package:simple_live_app/modules/mine/parse/parse_page.dart';
 import 'package:simple_live_app/modules/sync/local_sync/local_sync_controller.dart';
@@ -247,6 +251,22 @@ class AppPages {
     GetPage(
       name: RoutePath.kSettingsFollow,
       page: () => const FollowSettingsPage(),
+    ),
+    //视频播放（AV/BV）
+    GetPage(
+      name: RoutePath.kVideo,
+      page: () => const VideoPage(),
+      bindings: [
+        BindingsBuilder.put(() => VideoController()),
+      ],
+    ),
+    //视频播放页
+    GetPage(
+      name: RoutePath.kVideoPlayer,
+      page: () => const VideoPlayerPage(),
+      bindings: [
+        BindingsBuilder.put(() => VideoPlayerController()),
+      ],
     ),
   ];
 }

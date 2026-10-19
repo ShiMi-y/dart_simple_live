@@ -112,6 +112,22 @@ class MinePage extends StatelessWidget {
               color: Colors.grey.withAlpha(25),
             ),
             ListTile(
+              leading: const Icon(Remix.play_circle_line),
+              title: const Text("视频播放（AV/BV）"),
+              trailing: const Icon(
+                Icons.chevron_right,
+                color: Colors.grey,
+              ),
+              onTap: () {
+                Get.toNamed(RoutePath.kVideo);
+              },
+            ),
+            Divider(
+              indent: 12,
+              endIndent: 12,
+              color: Colors.grey.withAlpha(25),
+            ),
+            ListTile(
               leading: const Icon(Remix.link),
               title: const Text("链接解析"),
               trailing: const Icon(
