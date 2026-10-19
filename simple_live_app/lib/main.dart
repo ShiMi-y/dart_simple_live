@@ -30,6 +30,7 @@ import 'package:simple_live_app/services/douyin_account_service.dart';
 import 'package:simple_live_app/services/db_service.dart';
 import 'package:simple_live_app/services/follow_service.dart';
 import 'package:simple_live_app/services/local_storage_service.dart';
+import 'package:simple_live_app/services/super_chat_cache_service.dart';
 import 'package:simple_live_app/services/sync_service.dart';
 import 'package:simple_live_app/widgets/status/app_loadding_widget.dart';
 import 'package:simple_live_core/simple_live_core.dart';
@@ -38,24 +39,36 @@ import 'package:window_manager/window_manager.dart';
 import 'package:path/path.dart' as p;
 import 'package:dynamic_color/dynamic_color.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await migrateData();
-  MediaKit.ensureInitialized();
-  // 多开支持：为当前实例分配可用的Hive数据目录（桌面端）
-  await initHive();
-  await initWindow();
-  //初始化服务
-  await initServices();
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  //设置状态栏为透明
-  SystemUiOverlayStyle systemUiOverlayStyle = const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.dark,
-    systemNavigationBarColor: Colors.transparent,
+void main() {
+  // 全局兜底：未捕获异常只记录日志，避免长时间播放后返回等场景直接闪退
+  runZonedGuarded(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
+      FlutterError.onError = (details) {
+        FlutterError.presentError(details);
+        debugPrint("Flutter异常: ${details.exceptionAsString()}");
+      };
+      await migrateData();
+      MediaKit.ensureInitialized();
+      // 多开支持：为当前实例分配可用的Hive数据目录（桌面端）
+      await initHive();
+      await initWindow();
+      //初始化服务
+      await initServices();
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      //设置状态栏为透明
+      SystemUiOverlayStyle systemUiOverlayStyle = const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        systemNavigationBarColor: Colors.transparent,
+      );
+      SystemChrome.setSystemUIOverlayStyle(systemUiOverlayStyle);
+      runApp(const MyApp());
+    },
+    (error, stack) {
+      debugPrint("未捕获异常: $error\n$stack");
+    },
   );
-  SystemChrome.setSystemUIOverlayStyle(systemUiOverlayStyle);
-  runApp(const MyApp());
 }
 
 /// 将Hive数据迁移到Application Support
@@ -214,6 +227,7 @@ Future initServices() async {
   //本地存储
   Log.d("Init LocalStorage Service");
   await Get.put(LocalStorageService()).init();
+  await Get.put(SuperChatCacheService()).init();
   await Get.put(DBService()).init();
   //初始化设置控制器
   Get.put(AppSettingsController());

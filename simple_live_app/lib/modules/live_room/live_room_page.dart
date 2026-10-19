@@ -640,12 +640,17 @@ class LiveRoomPage extends GetView<LiveRoomController> {
           separatorBuilder: (_, i) => AppStyle.vGap12,
           itemBuilder: (_, i) {
             var item = controller.superChats[i];
-            return SuperChatCard(
-              item,
-              persist: AppSettingsController.instance.scPersist.value,
-              onExpire: () {
-                controller.removeSuperChats();
-              },
+            // 点击单条SC可隐藏（同时从本地缓存移除）
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => controller.hideSuperChat(item),
+              child: SuperChatCard(
+                item,
+                persist: AppSettingsController.instance.scPersist.value,
+                onExpire: () {
+                  controller.removeSuperChats();
+                },
+              ),
             );
           },
         ),

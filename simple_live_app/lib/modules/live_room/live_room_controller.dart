@@ -22,6 +22,7 @@ import 'package:simple_live_app/modules/live_room/player/player_controller.dart'
 import 'package:simple_live_app/modules/settings/danmu_settings_page.dart';
 import 'package:simple_live_app/services/db_service.dart';
 import 'package:simple_live_app/services/follow_service.dart';
+import 'package:simple_live_app/services/super_chat_cache_service.dart';
 import 'package:simple_live_app/widgets/desktop_refresh_button.dart';
 import 'package:simple_live_app/widgets/follow_user_item.dart';
 import 'package:simple_live_app/widgets/settings/settings_action.dart';
@@ -326,6 +327,8 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         }
       }
 
+      // 先展示本地缓存的SC（退出房间后5小时内有效），再拉取接口数据
+      loadSuperChatCache();
       getSuperChatMessage();
 
       addHistory();
@@ -510,10 +513,55 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     try {
       var sc =
           await site.liveSite.getSuperChatMessage(roomId: detail.value!.roomId);
-      superChats.addAll(sc);
+      var exists = superChats.map(SuperChatCacheService.instance.signature).toSet();
+      for (var item in sc) {
+        if (exists.contains(SuperChatCacheService.instance.signature(item))) {
+          continue;
+        }
+        superChats.add(item);
+        SuperChatCacheService.instance.save(site.id, roomId, item);
+      }
     } catch (e) {
       Log.logPrint(e);
       addSysMsg("SC读取失败");
+    }
+  }
+
+  /// 加载本地缓存的SC（退出房间后 5 小时内有效，重新进房重新展示）
+  void loadSuperChatCache() {
+    try {
+      var cached = SuperChatCacheService.instance.load(site.id, roomId);
+      if (cached.isEmpty) {
+        return;
+      }
+      var exists =
+          superChats.map(SuperChatCacheService.instance.signature).toSet();
+      var added = 0;
+      for (var sc in cached) {
+        var key = SuperChatCacheService.instance.signature(sc);
+        if (exists.contains(key)) {
+          continue;
+        }
+        superChats.add(sc);
+        exists.add(key);
+        added++;
+      }
+      Log.d("加载SC缓存: 命中${cached.length}条, 新增$added条");
+    } catch (e) {
+      Log.logPrint("加载SC缓存失败: $e");
+    }
+  }
+
+  /// 隐藏单条SC（SC栏点击，同时从本地缓存移除）
+  void hideSuperChat(LiveSuperChatMessage sc) {
+    try {
+      var key = SuperChatCacheService.instance.signature(sc);
+      superChats.removeWhere(
+        (e) => SuperChatCacheService.instance.signature(e) == key,
+      );
+      SuperChatCacheService.instance.remove(site.id, roomId, sc);
+    } catch (e) {
+      Log.logPrint("隐藏SC失败: $e");
     }
   }
 
@@ -523,6 +571,8 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   void addSuperChat(LiveSuperChatMessage sc, {bool inline = true}) {
     // SC窗口保持的SC不设置条数上限（仅「SC常驻显示」关闭时会清理已到期的）
     superChats.add(sc);
+    // 写入本地缓存（退出房间后5小时内重新进房可再次展示）
+    SuperChatCacheService.instance.save(site.id, roomId, sc);
 
     if (!inline) {
       return;
@@ -1269,6 +1319,13 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     rxSite.value = site;
     rxRoomId.value = roomId;
 
+    // 离开旧房间：SC缓存开始计时
+    try {
+      SuperChatCacheService.instance.markLeft(site.id, roomId);
+    } catch (e) {
+      Log.logPrint("记录旧房间SC缓存失败: $e");
+    }
+
     // 清除全部消息
     liveDanmaku.stop();
     messages.clear();
@@ -1345,13 +1402,39 @@ ${error?.stackTrace}''');
 
   @override
   void onClose() {
-    WidgetsBinding.instance.removeObserver(this);
-    scrollController.removeListener(scrollListener);
-    autoExitTimer?.cancel();
-
-    liveDanmaku.stop();
+    // 各步骤独立 try/catch：长时间播放后返回时，任何一步异常都不应导致应用闪退
+    try {
+      WidgetsBinding.instance.removeObserver(this);
+    } catch (e) {
+      Log.logPrint("移除监听失败: $e");
+    }
+    try {
+      scrollController.removeListener(scrollListener);
+    } catch (e) {
+      Log.logPrint("移除滚动监听失败: $e");
+    }
+    try {
+      autoExitTimer?.cancel();
+    } catch (e) {
+      Log.logPrint("取消定时关闭失败: $e");
+    }
+    try {
+      liveDanmaku.stop();
+    } catch (e) {
+      Log.logPrint("停止弹幕失败: $e");
+    }
+    // 退出直播间：SC缓存开始计算5小时有效期
+    try {
+      SuperChatCacheService.instance.markLeft(site.id, roomId);
+    } catch (e) {
+      Log.logPrint("记录SC缓存退出时间失败: $e");
+    }
     danmakuController = null;
-    _liveDurationTimer?.cancel(); // 页面关闭时取消定时器
+    try {
+      _liveDurationTimer?.cancel(); // 页面关闭时取消定时器
+    } catch (e) {
+      Log.logPrint("取消时长定时器失败: $e");
+    }
     super.onClose();
   }
 }

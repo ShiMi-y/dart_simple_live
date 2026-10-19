@@ -834,15 +834,40 @@ class PlayerController extends BaseController
   }
 
   @override
-  void onClose() async {
+  void onClose() {
     Log.w("播放器关闭");
-    if (smallWindowState.value) {
-      exitSmallWindow();
-    }
-    disposeStream();
-    disposeDanmakuController();
-    await resetSystem();
-    await player.dispose();
+    // 各步骤独立 try/catch：长时间播放后返回时，任何一步异常都不应导致应用闪退
+    _disposePlayer();
     super.onClose();
+  }
+
+  Future<void> _disposePlayer() async {
+    try {
+      if (smallWindowState.value) {
+        exitSmallWindow();
+      }
+    } catch (e) {
+      Log.logPrint("退出小窗失败: $e");
+    }
+    try {
+      disposeStream();
+    } catch (e) {
+      Log.logPrint("取消播放器订阅失败: $e");
+    }
+    try {
+      disposeDanmakuController();
+    } catch (e) {
+      Log.logPrint("清理弹幕失败: $e");
+    }
+    try {
+      await resetSystem();
+    } catch (e) {
+      Log.logPrint("重置播放器系统状态失败: $e");
+    }
+    try {
+      await player.dispose();
+    } catch (e) {
+      Log.logPrint("销毁播放器失败: $e");
+    }
   }
 }
