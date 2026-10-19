@@ -527,6 +527,10 @@ class LiveRoomPage extends GetView<LiveRoomController> {
   }
 
   Widget buildMessageItem(LiveMessage message) {
+    // 「SC关注UID」命中的用户在聊天区发言时，ID与文本标红
+    var marked = message.userId.isNotEmpty &&
+        AppSettingsController.instance.scUidList.contains(message.userId);
+
     // SC混入聊天流（复用 SuperChatCard，样式与SC标签页一致；聊天区不显示头像）
     if (message.type == LiveMessageType.superChat &&
         message.data is LiveSuperChatMessage) {
@@ -573,7 +577,9 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                       TextSpan(
                         text: "${message.userName}：",
                         style: TextStyle(
-                          color: Colors.grey,
+                          color: marked ? Colors.red : Colors.grey,
+                          fontWeight:
+                              marked ? FontWeight.bold : FontWeight.normal,
                           fontSize:
                               AppSettingsController.instance.chatTextSize.value,
                         ),
@@ -581,9 +587,11 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                           TextSpan(
                             text: message.message,
                             style: TextStyle(
-                              color: Get.isDarkMode
-                                  ? Colors.white
-                                  : AppColors.black333,
+                              color: marked
+                                  ? Colors.red
+                                  : (Get.isDarkMode
+                                      ? Colors.white
+                                      : AppColors.black333),
                             ),
                           )
                         ],
@@ -597,14 +605,19 @@ class LiveRoomPage extends GetView<LiveRoomController> {
               TextSpan(
                 text: "${message.userName}：",
                 style: TextStyle(
-                  color: Colors.grey,
+                  color: marked ? Colors.red : Colors.grey,
+                  fontWeight: marked ? FontWeight.bold : FontWeight.normal,
                   fontSize: AppSettingsController.instance.chatTextSize.value,
                 ),
                 children: [
                   TextSpan(
                     text: message.message,
                     style: TextStyle(
-                      color: Get.isDarkMode ? Colors.white : AppColors.black333,
+                      color: marked
+                          ? Colors.red
+                          : (Get.isDarkMode
+                              ? Colors.white
+                              : AppColors.black333),
                     ),
                   )
                 ],

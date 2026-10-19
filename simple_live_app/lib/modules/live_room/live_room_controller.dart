@@ -208,10 +208,10 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   /// 接收到WebSocket信息
   void onWSMessage(LiveMessage msg) {
     if (msg.type == LiveMessageType.chat) {
-      // 「SC关注UID」命中的发言始终以SC形式显示，不再进入普通聊天行
+      // 「SC关注UID」命中的发言始终以SC形式显示；
+      // 同时聊天区保留该发言，并把ID与文本标红（见 buildMessageItem）
       if (isUidSuperChat(msg)) {
-        addSuperChat(buildUidSuperChat(msg));
-        return;
+        addSuperChat(buildUidSuperChat(msg), inline: false);
       }
 
       if (messages.length > 200 && !disableAutoScroll.value) {
@@ -519,9 +519,14 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
   /// 添加一条SC
   /// 除了进入SC列表，还会根据设置混入聊天流
-  void addSuperChat(LiveSuperChatMessage sc) {
+  /// [inline] 为 false 时不混入聊天流（用于「SC关注UID」的发言：聊天区以标红文本显示）
+  void addSuperChat(LiveSuperChatMessage sc, {bool inline = true}) {
     // SC窗口保持的SC不设置条数上限（仅「SC常驻显示」关闭时会清理已到期的）
     superChats.add(sc);
+
+    if (!inline) {
+      return;
+    }
 
     if (!AppSettingsController.instance.chatScInline.value) {
       return;
