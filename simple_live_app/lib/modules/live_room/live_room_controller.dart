@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -549,6 +550,17 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       Log.d("加载SC缓存: 命中${cached.length}条, 新增$added条");
     } catch (e) {
       Log.logPrint("加载SC缓存失败: $e");
+    }
+  }
+
+  /// 复制单条SC内容到剪贴板（SC栏右键/长按）
+  void copySuperChat(LiveSuperChatMessage sc) async {
+    try {
+      await Clipboard.setData(ClipboardData(text: sc.message));
+      SmartDialog.showToast("已复制SC内容");
+    } catch (e) {
+      Log.logPrint("复制SC内容失败: $e");
+      SmartDialog.showToast("复制失败");
     }
   }
 

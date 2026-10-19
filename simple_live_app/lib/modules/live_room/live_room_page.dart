@@ -640,10 +640,12 @@ class LiveRoomPage extends GetView<LiveRoomController> {
           separatorBuilder: (_, i) => AppStyle.vGap12,
           itemBuilder: (_, i) {
             var item = controller.superChats[i];
-            // 点击单条SC可隐藏（同时从本地缓存移除）
+            // 单击隐藏（同时从本地缓存移除）；右键/长按复制SC内容
             return GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () => controller.hideSuperChat(item),
+              onSecondaryTap: () => controller.copySuperChat(item),
+              onLongPress: () => controller.copySuperChat(item),
               child: SuperChatCard(
                 item,
                 persist: AppSettingsController.instance.scPersist.value,
@@ -1029,11 +1031,19 @@ class _ChatSuperChatBarState extends State<ChatSuperChatBar> {
                     for (var item in items)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 6),
-                        child: SuperChatCard(
-                          item,
-                          onExpire: null,
-                          persist: true,
-                          showAvatar: false,
+                        // 右键/长按复制该条SC内容（点击别处则隐藏整个窗口）
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onSecondaryTap: () =>
+                              widget.controller.copySuperChat(item),
+                          onLongPress: () =>
+                              widget.controller.copySuperChat(item),
+                          child: SuperChatCard(
+                            item,
+                            onExpire: null,
+                            persist: true,
+                            showAvatar: false,
+                          ),
                         ),
                       ),
                   ],
