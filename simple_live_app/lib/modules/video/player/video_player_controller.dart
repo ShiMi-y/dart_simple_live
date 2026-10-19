@@ -48,6 +48,13 @@ class VideoPlayerController extends BaseController {
   var fullscreen = false.obs;
   var showControls = true.obs;
 
+  /// 视频播放器独立音量（0-100，与直播间音量互不影响）
+  var volume = 100.0.obs;
+  double _lastVolume = 100.0;
+
+  /// 是否已登录哔哩哔哩（登录后可获取更高清晰度）
+  bool get isLogin => BiliBiliVideoService.instance.isLogin;
+
   /// 弹幕控制器（由 DanmakuScreen 创建后回填）
   DanmakuController? danmakuController;
 
@@ -77,6 +84,10 @@ class VideoPlayerController extends BaseController {
       ),
     );
     videoController = VideoController(player);
+    // 恢复上次的视频音量
+    volume.value = AppSettingsController.instance.videoVolume.value;
+    _lastVolume = volume.value <= 0 ? 100 : volume.value;
+    player.setVolume(volume.value);
     initDanmakuController = (e) {
       danmakuController = e;
     };
@@ -115,7 +126,6 @@ class VideoPlayerController extends BaseController {
       var playUrl = await BiliBiliVideoService.instance.getPlayUrl(
         bvid: args.bvid,
         cid: args.page.cid,
-        qn: 80,
       );
       qualityDesc.value = playUrl.qualityDesc;
       qualitys.assignAll(playUrl.acceptQuality);
@@ -211,6 +221,29 @@ class VideoPlayerController extends BaseController {
 
   void togglePlay() {
     player.playOrPause();
+  }
+
+  /// 调整视频音量（0-100），会记忆到设置
+  void setVolume(double value) {
+    var v = value.clamp(0.0, 100.0);
+    volume.value = v;
+    if (v > 0) {
+      _lastVolume = v;
+    }
+    player.setVolume(v);
+    AppSettingsController.instance.setVideoVolume(v);
+  }
+
+  /// 静音 / 取消静音
+  void toggleMute() {
+    if (volume.value > 0) {
+      _lastVolume = volume.value;
+      volume.value = 0;
+      player.setVolume(0);
+      AppSettingsController.instance.setVideoVolume(0);
+    } else {
+      setVolume(_lastVolume <= 0 ? 100 : _lastVolume);
+    }
   }
 
   void toggleDanmaku() {

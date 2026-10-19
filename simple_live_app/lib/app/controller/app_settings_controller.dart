@@ -118,6 +118,10 @@ class AppSettingsController extends GetxController {
       LocalStorageService.kPlayerVolume,
       100.0,
     );
+    videoVolume.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kVideoVolume,
+      100.0,
+    );
     pipHideDanmu.value = LocalStorageService.instance
         .getValue(LocalStorageService.kPIPHideDanmu, true);
 
@@ -497,6 +501,17 @@ class AppSettingsController extends GetxController {
     playerVolume.value = value;
     LocalStorageService.instance.setValue(
       LocalStorageService.kPlayerVolume,
+      value,
+    );
+  }
+
+  /// 视频播放器（AV/BV）独立音量，与直播间音量互不影响
+  Rx<double> videoVolume = 100.0.obs;
+
+  void setVideoVolume(double value) {
+    videoVolume.value = value;
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kVideoVolume,
       value,
     );
   }

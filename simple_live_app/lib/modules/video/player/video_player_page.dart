@@ -190,6 +190,39 @@ class VideoPlayerPage extends GetView<VideoPlayerController> {
                       : Colors.white38,
                 ),
               ),
+              if (MediaQuery.of(context).size.width > 700)
+                SizedBox(
+                  width: 96,
+                  child: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 2,
+                      thumbShape: const RoundSliderThumbShape(
+                        enabledThumbRadius: 5,
+                      ),
+                      overlayShape: const RoundSliderOverlayShape(
+                        overlayRadius: 10,
+                      ),
+                    ),
+                    child: Slider(
+                      min: 0,
+                      max: 100,
+                      value: controller.volume.value,
+                      onChanged: controller.setVolume,
+                    ),
+                  ),
+                ),
+              IconButton(
+                tooltip: "静音/取消静音",
+                onPressed: controller.toggleMute,
+                icon: Icon(
+                  controller.volume.value <= 0
+                      ? Icons.volume_off
+                      : controller.volume.value < 50
+                          ? Icons.volume_down
+                          : Icons.volume_up,
+                  color: Colors.white,
+                ),
+              ),
               if (controller.qualitys.isNotEmpty)
                 PopupMenuButton<int>(
                   tooltip: "清晰度",
@@ -231,6 +264,19 @@ class VideoPlayerPage extends GetView<VideoPlayerController> {
                 "${controller.danmakuCount.value} 条弹幕",
                 style: const TextStyle(color: Colors.white38, fontSize: 11),
               ),
+              if (!controller.isLogin) ...[
+                const SizedBox(width: 10),
+                const Text(
+                  "未登录·最高720P",
+                  style: TextStyle(color: Colors.orangeAccent, fontSize: 11),
+                ),
+              ] else ...[
+                const SizedBox(width: 10),
+                const Text(
+                  "已登录",
+                  style: TextStyle(color: Colors.greenAccent, fontSize: 11),
+                ),
+              ],
               const Spacer(),
               if (controller.args.pages.length > 1)
                 PopupMenuButton<int>(

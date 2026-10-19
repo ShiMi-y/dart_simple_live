@@ -25,9 +25,6 @@ class BiliBiliVideoService {
     r'<d p="([^"]+)">([\s\S]*?)</d>',
   );
 
-  /// 按优先级尝试的清晰度（登录后可拿到更高的）
-  static const List<int> _qualityCandidates = [80, 74, 64, 32, 16];
-
   String get _cookie {
     try {
       return BiliBiliAccountService.instance.cookie;
@@ -112,52 +109,82 @@ class BiliBiliVideoService {
     return result;
   }
 
+  /// 是否已登录哔哩哔哩（登录后可获取更高清晰度）
+  bool get isLogin => _cookie.isNotEmpty;
+
   /// 获取播放地址
   ///
-  /// [qn] 期望清晰度（80=1080P、64=720P、32=480P、16=360P），
-  /// 实际按 [qualityCandidates] 依次尝试，返回第一个可播放的。
+  /// [qn] 期望清晰度（可为空）。为空时：已登录从 1080P+ 开始尝试，未登录从 1080P 开始。
+  /// 按「期望清晰度 → 接口返回的可选清晰度（从高到低）」依次尝试，返回第一个可播放的。
   Future<BiliVideoPlayUrl> getPlayUrl({
     required String bvid,
     required int cid,
-    int qn = 80,
+    int? qn,
   }) async {
-    var candidates = <int>[
-      qn,
-      ..._qualityCandidates.where((e) => e < qn),
-    ];
+    var preferred = qn ?? (isLogin ? 112 : 80);
+    var tried = <int>{};
+    var candidates = <int>[preferred];
     Map<int, String> acceptQuality = {};
-    for (var quality in candidates) {
-      var data = await HttpClient.instance.getJson(
-        "https://api.bilibili.com/x/player/playurl",
-        queryParameters: {
-          "bvid": bvid,
-          "cid": cid,
-          "qn": quality,
-          "fnval": 1,
-          "fourk": 1,
-        },
-        header: _header,
-      );
-      if (data is! Map || data["code"] != 0) {
-        continue;
-      }
-      var playData = data["data"];
-      if (playData is! Map) {
-        continue;
-      }
-      acceptQuality = _parseAcceptQuality(playData);
-      var durl = playData["durl"];
-      if (durl is List && durl.isNotEmpty) {
-        var url = (durl.first as Map)["url"]?.toString() ?? "";
-        if (url.isNotEmpty) {
-          return BiliVideoPlayUrl(
-            url: url,
-            quality: playData["quality"] as int? ?? quality,
-            qualityDesc: acceptQuality[playData["quality"]] ?? "清晰度$quality",
-            acceptQuality: acceptQuality,
-          );
+    var sawDash = false;
+
+    for (var round = 0; round < 2; round++) {
+      for (var quality in candidates) {
+        if (!tried.add(quality)) {
+          continue;
+        }
+        var data = await HttpClient.instance.getJson(
+          "https://api.bilibili.com/x/player/playurl",
+          queryParameters: {
+            "bvid": bvid,
+            "cid": cid,
+            "qn": quality,
+            "fnval": 1,
+            "fourk": 1,
+          },
+          header: _header,
+        );
+        if (data is! Map || data["code"] != 0) {
+          continue;
+        }
+        var playData = data["data"];
+        if (playData is! Map) {
+          continue;
+        }
+        if (acceptQuality.isEmpty) {
+          acceptQuality = _parseAcceptQuality(playData);
+        }
+        if ((playData["dash"] as Map?)?.isNotEmpty == true) {
+          sawDash = true;
+        }
+        var durl = playData["durl"];
+        if (durl is List && durl.isNotEmpty) {
+          var url = (durl.first as Map)["url"]?.toString() ?? "";
+          if (url.isNotEmpty) {
+            var actualQuality = playData["quality"] as int? ?? quality;
+            return BiliVideoPlayUrl(
+              url: url,
+              quality: actualQuality,
+              qualityDesc: acceptQuality[actualQuality] ?? "清晰度$quality",
+              acceptQuality: acceptQuality,
+            );
+          }
         }
       }
+      // 第二轮：按接口给出的可选清晰度从高到低再试一遍
+      var extra = acceptQuality.keys
+          .where((e) => e != preferred && !tried.contains(e))
+          .toList()
+        ..sort((a, b) => b.compareTo(a));
+      if (extra.isEmpty) {
+        break;
+      }
+      candidates = extra;
+    }
+
+    if (sawDash) {
+      throw Exception(
+        isLogin ? "该清晰度需要大会员或付费，已尝试其余清晰度仍失败" : "无法获取播放地址，登录哔哩哔哩账号后可选更高清晰度",
+      );
     }
     throw Exception("无法获取播放地址（可能是付费/大会员视频）");
   }

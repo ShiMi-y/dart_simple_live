@@ -123,6 +123,9 @@ class LocalStorageService extends GetxService {
   /// 播放器音量
   static const String kPlayerVolume = "PlayerVolume";
 
+  /// 视频播放器（AV/BV）独立音量
+  static const String kVideoVolume = "VideoVolume";
+
   /// 小窗隐藏弹幕
   static const String kPIPHideDanmu = "PIPHideDanmu";
 
