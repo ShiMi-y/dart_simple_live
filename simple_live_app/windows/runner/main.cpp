@@ -19,6 +19,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   flutter::DartProject project(L"data");
 
+  // 规避 Windows 引擎层崩溃（从直播间返回时偶发 flutter_windows.dll 访问冲突 /
+  // coremessaging.dll 快速失败，事件日志中 accessibility_bridge AXTree 报错刷屏）：
+  // 1) 无障碍固定使用成熟的 IAccessible 实现（默认可能选用实验性的 IAccessibleEx）；
+  // 2) 关闭 Impeller，改用成熟的 Skia/ANGLE 渲染后端，视频纹理创建/销毁更稳定。
+  project.set_accessibility_mode(flutter::AccessibilityMode::IAccessible);
+  project.set_impeller_switch(flutter::ImpellerSwitch::Disabled);
+
   std::vector<std::string> command_line_arguments =
       GetCommandLineArguments();
 
