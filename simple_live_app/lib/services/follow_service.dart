@@ -17,6 +17,7 @@ import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/models/db/follow_user.dart';
 import 'package:simple_live_app/models/db/follow_user_tag.dart';
 import 'package:simple_live_app/services/db_service.dart';
+import 'package:simple_live_app/services/live_notify_service.dart';
 
 class FollowService extends GetxService {
   StreamSubscription<dynamic>? subscription;
@@ -227,6 +228,12 @@ class FollowService extends GetxService {
       var site = Sites.allSites[item.siteId]!;
       // 先只查状态
       var isLiving = await site.liveSite.getLiveStatus(roomId: item.roomId);
+      // 开播提醒：识别「未开播 → 直播中」的跳变
+      try {
+        LiveNotifyService.instance.onLiveStatusUpdated(item, isLiving);
+      } catch (e) {
+        Log.logPrint("开播提醒处理失败: $e");
+      }
       item.liveStatus.value = isLiving ? 2 : 1;
       if (item.liveStatus.value == 2) {
         // 只有正在直播时才查详细信息

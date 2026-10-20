@@ -122,6 +122,14 @@ class AppSettingsController extends GetxController {
       LocalStorageService.kVideoVolume,
       100.0,
     );
+    liveNotifyEnable.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kLiveNotifyEnable,
+      true,
+    );
+    minimizeToTrayEnable.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kMinimizeToTray,
+      true,
+    );
     pipHideDanmu.value = LocalStorageService.instance
         .getValue(LocalStorageService.kPIPHideDanmu, true);
 
@@ -501,6 +509,28 @@ class AppSettingsController extends GetxController {
     playerVolume.value = value;
     LocalStorageService.instance.setValue(
       LocalStorageService.kPlayerVolume,
+      value,
+    );
+  }
+
+  /// 开播提醒总开关（关注主播开播时发送系统通知）
+  Rx<bool> liveNotifyEnable = true.obs;
+
+  void setLiveNotifyEnable(bool value) {
+    liveNotifyEnable.value = value;
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kLiveNotifyEnable,
+      value,
+    );
+  }
+
+  /// 最小化到系统托盘
+  Rx<bool> minimizeToTrayEnable = true.obs;
+
+  void setMinimizeToTrayEnable(bool value) {
+    minimizeToTrayEnable.value = value;
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kMinimizeToTray,
       value,
     );
   }

@@ -31,6 +31,8 @@ import 'package:simple_live_app/services/db_service.dart';
 import 'package:simple_live_app/services/follow_service.dart';
 import 'package:simple_live_app/services/local_storage_service.dart';
 import 'package:simple_live_app/services/super_chat_cache_service.dart';
+import 'package:simple_live_app/services/live_notify_service.dart';
+import 'package:simple_live_app/services/tray_service.dart';
 import 'package:simple_live_app/services/sync_service.dart';
 import 'package:simple_live_app/widgets/status/app_loadding_widget.dart';
 import 'package:simple_live_core/simple_live_core.dart';
@@ -194,6 +196,24 @@ Future<void> _copyInitialConfigIfEmpty(
   }
 }
 
+/// 窗口监听：最小化时隐藏到系统托盘（可在「其他设置」中关闭）
+class _AppWindowListener with WindowListener {
+  @override
+  void onWindowMinimize() async {
+    if (!(Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
+      return;
+    }
+    if (!AppSettingsController.instance.minimizeToTrayEnable.value) {
+      return;
+    }
+    try {
+      await windowManager.hide();
+    } catch (e) {
+      Log.logPrint("最小化到托盘失败: $e");
+    }
+  }
+}
+
 Future initWindow() async {
   if (!(Platform.isMacOS || Platform.isWindows || Platform.isLinux)) {
     return;
@@ -205,6 +225,7 @@ Future initWindow() async {
     // 多开时在标题上标注实例序号，便于区分窗口
     title: instanceIndex > 0 ? "Simple Live (实例 ${instanceIndex + 1})" : "Simple Live",
   );
+  windowManager.addListener(_AppWindowListener());
   windowManager.waitUntilReadyToShow(windowOptions, () async {
     // 多开时错开窗口位置，方便并排查看多个直播
     if (instanceIndex > 0) {
@@ -228,6 +249,8 @@ Future initServices() async {
   Log.d("Init LocalStorage Service");
   await Get.put(LocalStorageService()).init();
   await Get.put(SuperChatCacheService()).init();
+  await Get.put(LiveNotifyService()).init();
+  await Get.put(TrayService()).init();
   await Get.put(DBService()).init();
   //初始化设置控制器
   Get.put(AppSettingsController());

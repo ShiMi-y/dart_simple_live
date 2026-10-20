@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
+import 'package:simple_live_app/services/live_notify_service.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:remixicon/remixicon.dart';
@@ -116,23 +119,52 @@ class FollowUserItem extends StatelessWidget {
             ),
         ],
       ),
-      trailing: playing
-          ? const SizedBox(
-              width: 64,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 开播提醒开关（桌面端：系统通知）
+          if (Platform.isWindows || Platform.isMacOS || Platform.isLinux)
+            Obx(
+              () {
+                var enabled = LiveNotifyService.instance.isEnabled(item.id);
+                return IconButton(
+                  visualDensity: VisualDensity.compact,
+                  tooltip: enabled ? "关闭开播提醒" : "开启开播提醒",
+                  onPressed: () async {
+                    await LiveNotifyService.instance
+                        .setEnabled(item.id, !enabled);
+                    SmartDialog.showToast(
+                      enabled ? "已关闭开播提醒" : "开播时将通知你",
+                    );
+                  },
+                  icon: Icon(
+                    enabled
+                        ? Icons.notifications_active
+                        : Icons.notifications_none,
+                    size: 20,
+                    color: enabled
+                        ? Theme.of(context).colorScheme.primary
+                        : Colors.grey,
+                  ),
+                );
+              },
+            ),
+          if (playing)
+            const SizedBox(
+              width: 48,
               child: Center(
-                child: Icon(
-                  Icons.play_arrow,
-                ),
+                child: Icon(Icons.play_arrow),
               ),
             )
-          : (onRemove == null
-              ? null
-              : IconButton(
-                  onPressed: () {
-                    onRemove?.call();
-                  },
-                  icon: const Icon(Remix.dislike_line),
-                )),
+          else if (onRemove != null)
+            IconButton(
+              onPressed: () {
+                onRemove?.call();
+              },
+              icon: const Icon(Remix.dislike_line),
+            ),
+        ],
+      ),
       onTap: onTap,
       onLongPress: onLongPress,
     );

@@ -25,6 +25,17 @@ class FollowSettingsPage extends GetView<AppSettingsController> {
               children: [
                 Obx(
                   () => SettingsSwitch(
+                    value:
+                        AppSettingsController.instance.liveNotifyEnable.value,
+                    title: "开播提醒",
+                    subtitle: "关注的主播开播时发送系统通知（桌面端）；可点关注列表每条右侧的铃铛单独开关",
+                    onChanged:
+                        AppSettingsController.instance.setLiveNotifyEnable,
+                  ),
+                ),
+                AppStyle.divider,
+                Obx(
+                  () => SettingsSwitch(
                     value: controller.autoUpdateFollowEnable.value,
                     title: "自动更新关注直播状态",
                     onChanged: (e) {
