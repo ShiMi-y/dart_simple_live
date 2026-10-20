@@ -17,6 +17,11 @@ class DAVClient {
       user: webDAVUser,
       password: webDAVPassword,
     );
+    // 服务器同时返回 Digest 与 Basic 两种 WWW-Authenticate 时，
+    // webdav_client 会优先选择 Digest；但它的 Digest 计算使用的是未拼接 baseUrl 的
+    // 原始 path（如 "/"），当 WebDAV 地址带路径前缀（如 /server.php/）时必然校验失败。
+    // 这里固定使用 Basic 鉴权，兼容性最好。
+    client.auth = BasicAuth(user: webDAVUser, pwd: webDAVPassword);
     client.setHeaders(
       {
         'accept-charset': 'utf-8',
