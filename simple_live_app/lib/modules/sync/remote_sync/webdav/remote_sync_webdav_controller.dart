@@ -22,6 +22,7 @@ import 'package:simple_live_app/models/db/history.dart';
 import 'package:simple_live_app/modules/sync/remote_sync/webdav/webdav_client.dart';
 import 'package:simple_live_app/services/bilibili_account_service.dart';
 import 'package:simple_live_app/services/db_service.dart';
+import 'package:simple_live_app/services/live_notify_service.dart';
 import 'package:simple_live_app/services/local_storage_service.dart';
 
 class RemoteSyncWebDAVController extends BaseController {
@@ -44,6 +45,10 @@ class RemoteSyncWebDAVController extends BaseController {
   final _userBilibiliAccountJsonName = 'SimpleLive_bilibili_account.json';
   final _userSettingsJsonName = 'SimpleLive_Settings.json';
   final _userTagsJsonName = 'SimpleLive_Tags.json';
+  // 专有特性：SC关注UID（哔哩哔哩UID -> SC）
+  final _userScUidJsonName = 'SimpleLive_sc_uid.json';
+  // 专有特性：每位主播的开播提醒开关
+  final _userLiveNotifyJsonName = 'SimpleLive_live_notify.json';
 
   @override
   void onInit() {
@@ -207,6 +212,22 @@ class RemoteSyncWebDAVController extends BaseController {
           File(join(profile.path, _userBilibiliAccountJsonName));
       await bilibiliAccountJsonFile
           .writeAsString(jsonEncode(userBiliAccountCookieMap));
+      // SC 关注UID（专有特性）
+      var scUidList = LocalStorageService.instance.scUidBox.keys
+          .map((e) => e.toString())
+          .toList();
+      var dataScUidMap = {'data': scUidList};
+      final scUidJsonFile = File(join(profile.path, _userScUidJsonName));
+      await scUidJsonFile.writeAsString(jsonEncode(dataScUidMap));
+
+      // 每位主播的开播提醒开关（专有特性）
+      var liveNotifyList =
+          LiveNotifyService.instance.enabledIds.toList();
+      var dataLiveNotifyMap = {'data': liveNotifyList};
+      final liveNotifyJsonFile =
+          File(join(profile.path, _userLiveNotifyJsonName));
+      await liveNotifyJsonFile.writeAsString(jsonEncode(dataLiveNotifyMap));
+
       // settings
       var settingList = LocalStorageService.instance.settingsBox.toMap();
       var dataSettingListMap = {'data': settingList};
@@ -307,6 +328,27 @@ class RemoteSyncWebDAVController extends BaseController {
           Log.i('已同步用户设置');
         } catch (e) {
           Log.e("同步用户设置失败：$e", StackTrace.current);
+        }
+      } else if (file.name == _userScUidJsonName) {
+        try {
+          // SC 关注UID：整体替换（盒子 + 内存状态）
+          var ids = (jsonData as List)
+              .map((e) => e.toString())
+              .where((e) => e.trim().isNotEmpty)
+              .toList();
+          await AppSettingsController.instance.replaceScUidList(ids.toSet());
+          Log.i('已同步SC关注UID：${ids.length}个');
+        } catch (e) {
+          Log.e('同步SC关注UID失败：$e', StackTrace.current);
+        }
+      } else if (file.name == _userLiveNotifyJsonName) {
+        try {
+          var ids =
+              (jsonData as List).map((e) => e.toString()).toList();
+          await LiveNotifyService.instance.replaceAll(ids);
+          Log.i('已同步开播提醒设置：${ids.length}个');
+        } catch (e) {
+          Log.e('同步开播提醒设置失败：$e', StackTrace.current);
         }
       } else if (file.name == _userTagsJsonName && isSyncFollows.value) {
         try {

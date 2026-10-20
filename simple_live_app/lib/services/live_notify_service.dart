@@ -59,6 +59,20 @@ class LiveNotifyService extends GetxService {
 
   bool isEnabled(String id) => enabledIds.contains(id);
 
+  /// 整体替换（用于 WebDAV/同步恢复）
+  Future<void> replaceAll(Iterable<String> ids) async {
+    try {
+      await _box?.clear();
+      var list = ids.toList();
+      for (var id in list) {
+        await _box?.put(id, true);
+      }
+      enabledIds.assignAll(list);
+    } catch (e) {
+      Log.logPrint("恢复开播提醒设置失败: $e");
+    }
+  }
+
   Future<void> setEnabled(String id, bool value) async {
     try {
       if (value) {

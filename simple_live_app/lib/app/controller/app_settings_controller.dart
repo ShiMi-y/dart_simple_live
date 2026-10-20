@@ -465,6 +465,16 @@ class AppSettingsController extends GetxController {
 
   /// SC关注UID（哔哩哔哩），命中的发言始终以SC形式显示
   RxSet<String> scUidList = <String>{}.obs;
+  /// 整体替换 SC 关注UID（用于 WebDAV/局域网同步恢复）
+  Future<void> replaceScUidList(Set<String> ids) async {
+    await LocalStorageService.instance.scUidBox.clear();
+    for (var id in ids) {
+      await LocalStorageService.instance.scUidBox.put(id, id);
+    }
+    // ignore: invalid_use_of_protected_member
+    scUidList.value = ids;
+  }
+
   void addScUid(String e) {
     scUidList.add(e);
     LocalStorageService.instance.scUidBox.put(e, e);
