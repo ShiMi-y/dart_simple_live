@@ -126,10 +126,6 @@ class AppSettingsController extends GetxController {
       LocalStorageService.kLiveNotifyEnable,
       true,
     );
-    minimizeToTrayEnable.value = LocalStorageService.instance.getValue(
-      LocalStorageService.kMinimizeToTray,
-      true,
-    );
     pipHideDanmu.value = LocalStorageService.instance
         .getValue(LocalStorageService.kPIPHideDanmu, true);
 
@@ -520,17 +516,6 @@ class AppSettingsController extends GetxController {
     liveNotifyEnable.value = value;
     LocalStorageService.instance.setValue(
       LocalStorageService.kLiveNotifyEnable,
-      value,
-    );
-  }
-
-  /// 最小化到系统托盘
-  Rx<bool> minimizeToTrayEnable = true.obs;
-
-  void setMinimizeToTrayEnable(bool value) {
-    minimizeToTrayEnable.value = value;
-    LocalStorageService.instance.setValue(
-      LocalStorageService.kMinimizeToTray,
       value,
     );
   }

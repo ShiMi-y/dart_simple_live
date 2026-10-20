@@ -78,9 +78,6 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   local_notifier: ^0.1.6
-  tray_manager: ^0.7.0
-
-
 dev_dependencies:
   flutter_lints: ^2.0.0
   build_runner: ^2.3.3
