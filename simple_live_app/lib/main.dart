@@ -32,6 +32,7 @@ import 'package:simple_live_app/services/follow_service.dart';
 import 'package:simple_live_app/services/local_storage_service.dart';
 import 'package:simple_live_app/services/super_chat_cache_service.dart';
 import 'package:simple_live_app/services/live_notify_service.dart';
+import 'package:simple_live_app/services/shared_follow_service.dart';
 import 'package:simple_live_app/services/tray_service.dart';
 import 'package:simple_live_app/services/sync_service.dart';
 import 'package:simple_live_app/widgets/status/app_loadding_widget.dart';
@@ -252,6 +253,8 @@ Future initServices() async {
   await Get.put(LiveNotifyService()).init();
   await Get.put(TrayService()).init();
   await Get.put(DBService()).init();
+  // 多开：共享同一份关注数据（必须在 DBService 之后、FollowService 之前）
+  await Get.put(SharedFollowService()).init();
   //初始化设置控制器
   Get.put(AppSettingsController());
 
