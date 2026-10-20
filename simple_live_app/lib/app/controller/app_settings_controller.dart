@@ -109,6 +109,12 @@ class AppSettingsController extends GetxController {
       true,
     );
 
+    // 「播放器中显示SC」开关（此前只有保存、没有启动恢复，重启后会复位）
+    playershowSuperChat.value = LocalStorageService.instance.getValue(
+      LocalStorageService.kPlayerShowSuperChat,
+      true,
+    );
+
     scaleMode.value = LocalStorageService.instance.getValue(
       LocalStorageService.kPlayerScaleMode,
       0,

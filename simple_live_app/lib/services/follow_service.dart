@@ -122,20 +122,26 @@ class FollowService extends GetxService {
   }
 
   void initTimer() {
-    if (AppSettingsController.instance.autoUpdateFollowEnable.value) {
-      updateTimer?.cancel();
-      updateTimer = Timer.periodic(
-        Duration(
-            minutes:
-                AppSettingsController.instance.autoUpdateFollowDuration.value),
-        (timer) {
-          Log.logPrint("Update Follow Timer");
-          loadData();
-        },
-      );
-    } else {
-      updateTimer?.cancel();
+    var settings = AppSettingsController.instance;
+    // 开播提醒也依赖这个定时刷新，因此任一开关开启都需要定时器
+    var needTimer = settings.autoUpdateFollowEnable.value ||
+        settings.liveNotifyEnable.value;
+    updateTimer?.cancel();
+    if (!needTimer) {
+      return;
     }
+    var minutes = settings.autoUpdateFollowDuration.value;
+    // 只开了开播提醒（没开自动更新状态）时，用较短的间隔保证提醒及时
+    if (!settings.autoUpdateFollowEnable.value && minutes > 3) {
+      minutes = 3;
+    }
+    updateTimer = Timer.periodic(
+      Duration(minutes: minutes),
+      (timer) {
+        Log.logPrint("Update Follow Timer");
+        loadData();
+      },
+    );
   }
 
   Future<void> loadData({bool updateStatus = true}) async {
