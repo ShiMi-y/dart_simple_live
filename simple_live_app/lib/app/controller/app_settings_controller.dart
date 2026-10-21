@@ -21,6 +21,16 @@ class AppSettingsController extends GetxController {
 
   @override
   void onInit() {
+    loadSettings();
+    initSiteSort();
+    initHomeSort();
+    sanitizePlayerOutput();
+    super.onInit();
+  }
+
+  /// 从本地存储重新加载全部设置（WebDAV/同步恢复后需要调用，
+  /// 否则只写了 Hive 而内存里还是旧值：表现为「恢复当次正常、重启后才出问题」）
+  void loadSettings() {
     themeMode.value = LocalStorageService.instance
         .getValue(LocalStorageService.kThemeMode, 0);
     firstRun = LocalStorageService.instance
@@ -189,12 +199,6 @@ class AppSettingsController extends GetxController {
 
     updateFollowThreadCount.value = LocalStorageService.instance
         .getValue(LocalStorageService.kUpdateFollowThreadCount, 0);  // 默认 0 = 自动
-
-    initSiteSort();
-    initHomeSort();
-    sanitizePlayerOutput();
-
-    super.onInit();
   }
 
   /// 当前平台支持的音频输出驱动（mpv 的 ao）

@@ -36,23 +36,77 @@ mixin PlayerMixin {
     ),
   );
 
+  bool _audioDiagBound = false;
+  bool _audioSeen = false;
+  Timer? _audioWatchdog;
+  String _currentAoChain = "";
+
   /// 初始化播放器并设置 ao 参数
   Future<void> initializePlayer() async {
     var pp = player.platform as NativePlayer;
-    // 设置音频输出驱动（仅当该驱动适用于当前平台，否则 mpv 音频输出创建失败会导致无声）
-    if (AppSettingsController.instance.customPlayerOutput.value) {
+    if (Platform.isAndroid) {
+      // Android 上用「驱动链」而非单一驱动：任一可用即可出声。
+      // 单一 ao 初始化失败会导致整场无声（audiotrack 在部分机型/模拟器上不可用）。
+      var chain = "audiotrack,opensles,aaudio";
       var driver = AppSettingsController.instance.audioOutputDriver.value;
-      if (player.platform is NativePlayer &&
-          AppSettingsController.isAudioDriverValidForPlatform(driver)) {
+      if (AppSettingsController.instance.customPlayerOutput.value &&
+          AppSettingsController.isAudioDriverValidForPlatform(driver) &&
+          !chain.contains(driver)) {
+        chain = "$driver,$chain";
+      }
+      _currentAoChain = chain;
+      await pp.setProperty('ao', chain);
+      // media_kit 仓库更新导致的问题，临时解决办法
+      await pp.setProperty('force-seekable', 'yes');
+      Log.d("Android 音频输出驱动链: $chain");
+    } else if (AppSettingsController.instance.customPlayerOutput.value) {
+      var driver = AppSettingsController.instance.audioOutputDriver.value;
+      if (AppSettingsController.isAudioDriverValidForPlatform(driver)) {
+        _currentAoChain = driver;
         await (player.platform as dynamic).setProperty('ao', driver);
       } else {
         Log.logPrint("跳过不适用的音频输出驱动: [$driver]，使用平台默认值");
       }
     }
-    // media_kit 仓库更新导致的问题，临时解决办法
-    if(Platform.isAndroid){
-      await pp.setProperty('force-seekable', 'yes');
+    _bindAudioDiagnostics();
+  }
+
+  /// 音频诊断：记录音频参数；若播放后长时间无音频则尝试换驱动
+  void _bindAudioDiagnostics() {
+    if (_audioDiagBound) {
+      return;
     }
+    _audioDiagBound = true;
+    player.stream.audioParams.listen((params) {
+      _audioSeen = true;
+      Log.d(
+        "音频参数: ${params.sampleRate}Hz/${params.channelCount}ch/${params.format}",
+      );
+    });
+    player.stream.playing.listen((playing) {
+      if (!playing) {
+        return;
+      }
+      _audioWatchdog?.cancel();
+      _audioWatchdog = Timer(const Duration(seconds: 10), () async {
+        if (_audioSeen) {
+          return;
+        }
+        Log.logPrint("播放10秒仍无音频参数，尝试切换音频输出驱动（原: $_currentAoChain）");
+        try {
+          var fallback = Platform.isAndroid
+              ? "opensles,aaudio,audiotrack"
+              : _currentAoChain;
+          if (fallback.isNotEmpty) {
+            await (player.platform as dynamic).setProperty('ao', fallback);
+            await (player.platform as dynamic).setProperty('audio', 'auto');
+            Log.logPrint("已请求切换音频输出驱动为: $fallback");
+          }
+        } catch (e) {
+          Log.logPrint("切换音频输出驱动失败: $e");
+        }
+      });
+    });
   }
 
   /// 视频控制器

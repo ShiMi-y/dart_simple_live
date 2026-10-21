@@ -52,6 +52,7 @@ class RemoteSyncWebDAVController extends BaseController {
     "AudioOutputDriver",
     "VideoOutputDriver",
     "VideoHardwareDecoder",
+    "PlayerCompatMode",
   };
   // 专有特性：SC关注UID（哔哩哔哩UID -> SC）
   final _userScUidJsonName = 'SimpleLive_sc_uid.json';
@@ -340,6 +341,9 @@ class RemoteSyncWebDAVController extends BaseController {
           }
           await LocalStorageService.instance.settingsBox.clear();
           LocalStorageService.instance.settingsBox.putAll(restored);
+          // 立即把恢复的设置加载进内存，避免「本次用旧值、重启才生效」造成的诡异现象
+          AppSettingsController.instance.loadSettings();
+          AppSettingsController.instance.sanitizePlayerOutput();
           Log.i('已同步用户设置');
         } catch (e) {
           Log.e("同步用户设置失败：$e", StackTrace.current);
