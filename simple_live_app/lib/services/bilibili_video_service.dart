@@ -121,7 +121,9 @@ class BiliBiliVideoService {
     required int cid,
     int? qn,
   }) async {
-    var preferred = qn ?? (isLogin ? 112 : 80);
+    // 登录后从 1080P(80) 起请求：112 是 1080P+（需大会员），
+    // 直接请求 112 时接口可能只回落成 720P，导致「登录了也没有 1080P」。
+    var preferred = qn ?? 80;
     var tried = <int>{};
     var candidates = <int>[preferred];
     Map<int, String> acceptQuality = {};
@@ -139,7 +141,10 @@ class BiliBiliVideoService {
             "cid": cid,
             "qn": quality,
             "fnval": 1,
+            "fnver": 0,
             "fourk": 1,
+            "platform": "pc",
+            "high_quality": 1,
           },
           header: _header,
         );
@@ -150,8 +155,10 @@ class BiliBiliVideoService {
         if (playData is! Map) {
           continue;
         }
-        if (acceptQuality.isEmpty) {
-          acceptQuality = _parseAcceptQuality(playData);
+        // 多次尝试的 accept_quality 取并集（避免首次请求参数不佳导致清晰度列表缺失）
+        var parsed = _parseAcceptQuality(playData);
+        for (var entry in parsed.entries) {
+          acceptQuality.putIfAbsent(entry.key, () => entry.value);
         }
         if ((playData["dash"] as Map?)?.isNotEmpty == true) {
           sawDash = true;
@@ -161,6 +168,10 @@ class BiliBiliVideoService {
           var url = (durl.first as Map)["url"]?.toString() ?? "";
           if (url.isNotEmpty) {
             var actualQuality = playData["quality"] as int? ?? quality;
+            Log.d(
+              "视频playurl: 请求qn=$quality 实际=$actualQuality "
+              "可选=${acceptQuality.keys.toList()} 登录=${isLogin ? "是" : "否"}",
+            );
             return BiliVideoPlayUrl(
               url: url,
               quality: actualQuality,

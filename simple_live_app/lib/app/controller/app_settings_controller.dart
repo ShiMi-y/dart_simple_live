@@ -68,9 +68,9 @@ class AppSettingsController extends GetxController {
     );
 
     qualityLevel.value = LocalStorageService.instance
-        .getValue(LocalStorageService.kQualityLevel, 1);
+        .getValue(LocalStorageService.kQualityLevel, 2);
     qualityLevelCellular.value = LocalStorageService.instance
-        .getValue(LocalStorageService.kQualityLevelCellular, 1);
+        .getValue(LocalStorageService.kQualityLevelCellular, 2);
 
     autoExitEnable.value = LocalStorageService.instance
         .getValue(LocalStorageService.kAutoExitEnable, false);
@@ -190,6 +190,24 @@ class AppSettingsController extends GetxController {
       LocalStorageService.kVideoHardwareDecoder,
       Platform.isAndroid ? "auto-safe" : "auto",
     );
+
+    // 一次性迁移：画质默认值由「中间」改为「最高（原画）」
+    try {
+      var migrated = LocalStorageService.instance
+          .getValue("QualityLevelDefaultMigrated", false);
+      if (!migrated) {
+        if (qualityLevel.value == 1) {
+          setQualityLevel(2);
+        }
+        if (qualityLevelCellular.value == 1) {
+          setQualityLevelCellular(2);
+        }
+        LocalStorageService.instance
+            .setValue("QualityLevelDefaultMigrated", true);
+      }
+    } catch (e) {
+      Log.logPrint("画质默认值迁移失败: $e");
+    }
 
     autoUpdateFollowEnable.value = LocalStorageService.instance
         .getValue(LocalStorageService.kAutoUpdateFollowEnable, true);

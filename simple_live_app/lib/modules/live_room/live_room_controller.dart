@@ -373,8 +373,11 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       qualites.value = playQualites;
       var qualityLevel = await getQualityLevel();
       if (qualityLevel == 2) {
-        //最高
-        currentQuality = 0;
+        // 最高：优先匹配「原画」，没有则取列表第一项（通常也是最高）
+        var idx = playQualites.indexWhere(
+          (e) => e.quality.contains("原画") || e.quality.contains("蓝光"),
+        );
+        currentQuality = idx >= 0 ? idx : 0;
       } else if (qualityLevel == 0) {
         //最低
         currentQuality = playQualites.length - 1;
