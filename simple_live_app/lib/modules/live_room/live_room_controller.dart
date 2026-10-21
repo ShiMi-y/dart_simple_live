@@ -543,7 +543,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         if (exists.contains(key)) {
           continue;
         }
-        superChats.add(sc);
+        // 缓存里的SC endTime 早已过期：重置为从现在开始计时，
+        // 否则 SuperChatCard 一挂载就判定过期并触发 removeSuperChats() 把它清掉
+        superChats.add(_refreshCachedSuperChat(sc));
         exists.add(key);
         added++;
       }
@@ -551,6 +553,25 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     } catch (e) {
       Log.logPrint("加载SC缓存失败: $e");
     }
+  }
+
+  /// 缓存恢复的SC：若结束时间已过，重建一份从现在开始计时的实例
+  LiveSuperChatMessage _refreshCachedSuperChat(LiveSuperChatMessage sc) {
+    var now = DateTime.now();
+    if (sc.endTime.isAfter(now)) {
+      return sc;
+    }
+    return LiveSuperChatMessage(
+      userName: sc.userName,
+      face: sc.face,
+      message: sc.message,
+      price: sc.price,
+      startTime: sc.startTime,
+      endTime: now.add(const Duration(minutes: 30)),
+      backgroundColor: sc.backgroundColor,
+      backgroundBottomColor: sc.backgroundBottomColor,
+      isCustom: sc.isCustom,
+    );
   }
 
   /// 复制单条SC内容到剪贴板（SC栏右键/长按）
@@ -1328,12 +1349,15 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       return;
     }
 
+    var oldSiteId = rxSite.value.id;
+    var oldRoomId = rxRoomId.value;
+
     rxSite.value = site;
     rxRoomId.value = roomId;
 
-    // 离开旧房间：SC缓存开始计时
+    // 离开旧房间：SC缓存开始计时（注意用旧房间的 id，否则会给新房间误记离开时间）
     try {
-      SuperChatCacheService.instance.markLeft(site.id, roomId);
+      SuperChatCacheService.instance.markLeft(oldSiteId, oldRoomId);
     } catch (e) {
       Log.logPrint("记录旧房间SC缓存失败: $e");
     }
