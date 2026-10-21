@@ -45,6 +45,14 @@ class RemoteSyncWebDAVController extends BaseController {
   final _userBilibiliAccountJsonName = 'SimpleLive_bilibili_account.json';
   final _userSettingsJsonName = 'SimpleLive_Settings.json';
   final _userTagsJsonName = 'SimpleLive_Tags.json';
+
+  /// 与设备强相关的设置项，跨设备同步会导致播放异常（如 Android 上拿到 wasapi 就没声音）
+  static const Set<String> _deviceSpecificSettingKeys = {
+    "CustomPlayerOutput",
+    "AudioOutputDriver",
+    "VideoOutputDriver",
+    "VideoHardwareDecoder",
+  };
   // 专有特性：SC关注UID（哔哩哔哩UID -> SC）
   final _userScUidJsonName = 'SimpleLive_sc_uid.json';
   // 专有特性：每位主播的开播提醒开关
@@ -230,6 +238,9 @@ class RemoteSyncWebDAVController extends BaseController {
 
       // settings
       var settingList = LocalStorageService.instance.settingsBox.toMap();
+      for (var key in _deviceSpecificSettingKeys) {
+        settingList.remove(key);
+      }
       var dataSettingListMap = {'data': settingList};
       final settingJsonFile = File(join(profile.path, _userSettingsJsonName));
       await settingJsonFile.writeAsString(jsonEncode(dataSettingListMap));
@@ -323,8 +334,12 @@ class RemoteSyncWebDAVController extends BaseController {
         }
       } else if (file.name == _userSettingsJsonName) {
         try {
+          var restored = Map<String, dynamic>.from(jsonData as Map);
+          for (var key in _deviceSpecificSettingKeys) {
+            restored.remove(key);
+          }
           await LocalStorageService.instance.settingsBox.clear();
-          LocalStorageService.instance.settingsBox.putAll(jsonData);
+          LocalStorageService.instance.settingsBox.putAll(restored);
           Log.i('已同步用户设置');
         } catch (e) {
           Log.e("同步用户设置失败：$e", StackTrace.current);

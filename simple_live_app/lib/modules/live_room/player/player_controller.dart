@@ -39,13 +39,14 @@ mixin PlayerMixin {
   /// 初始化播放器并设置 ao 参数
   Future<void> initializePlayer() async {
     var pp = player.platform as NativePlayer;
-    // 设置音频输出驱动
+    // 设置音频输出驱动（仅当该驱动适用于当前平台，否则 mpv 音频输出创建失败会导致无声）
     if (AppSettingsController.instance.customPlayerOutput.value) {
-      if (player.platform is NativePlayer) {
-        await (player.platform as dynamic).setProperty(
-          'ao',
-          AppSettingsController.instance.audioOutputDriver.value,
-        );
+      var driver = AppSettingsController.instance.audioOutputDriver.value;
+      if (player.platform is NativePlayer &&
+          AppSettingsController.isAudioDriverValidForPlatform(driver)) {
+        await (player.platform as dynamic).setProperty('ao', driver);
+      } else {
+        Log.logPrint("跳过不适用的音频输出驱动: [$driver]，使用平台默认值");
       }
     }
     // media_kit 仓库更新导致的问题，临时解决办法
@@ -57,7 +58,10 @@ mixin PlayerMixin {
   /// 视频控制器
   late final videoController = VideoController(
     player,
-    configuration: AppSettingsController.instance.customPlayerOutput.value
+    configuration: AppSettingsController.instance.customPlayerOutput.value &&
+            AppSettingsController
+                .isVideoDriverValidForPlatform(
+                    AppSettingsController.instance.videoOutputDriver.value)
         ? VideoControllerConfiguration(
             vo: AppSettingsController.instance.videoOutputDriver.value,
             hwdec: AppSettingsController.instance.videoHardwareDecoder.value,

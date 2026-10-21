@@ -85,6 +85,14 @@ class OtherSettingsController extends BaseController {
 
   @override
   void onInit() {
+    // 按当前平台过滤输出驱动选项：
+    // 选到其他平台的驱动（如 Android 上用 wasapi）会让 mpv 音频输出创建失败 → 无声
+    audioOutputDrivers.removeWhere(
+      (key, _) => !AppSettingsController.isAudioDriverValidForPlatform(key),
+    );
+    videoOutputDrivers.removeWhere(
+      (key, _) => !AppSettingsController.isVideoDriverValidForPlatform(key),
+    );
     loadLogFiles();
     super.onInit();
   }

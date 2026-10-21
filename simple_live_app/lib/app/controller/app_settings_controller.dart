@@ -192,8 +192,108 @@ class AppSettingsController extends GetxController {
 
     initSiteSort();
     initHomeSort();
+    sanitizePlayerOutput();
 
     super.onInit();
+  }
+
+  /// 当前平台支持的音频输出驱动（mpv 的 ao）
+  static bool isAudioDriverValidForPlatform(String driver) {
+    if (driver.isEmpty) {
+      return false;
+    }
+    const cross = {"null", "pcm", "sdl", "openal", "libao"};
+    if (cross.contains(driver)) {
+      return true;
+    }
+    if (Platform.isAndroid) {
+      return {"audiotrack", "opensles", "aaudio"}.contains(driver);
+    }
+    if (Platform.isWindows) {
+      return {"wasapi", "directsound", "winmm"}.contains(driver);
+    }
+    if (Platform.isLinux) {
+      return {"pulse", "pipewire", "alsa", "oss", "jack"}.contains(driver);
+    }
+    if (Platform.isIOS) {
+      return driver == "audiounit";
+    }
+    if (Platform.isMacOS) {
+      return driver == "coreaudio";
+    }
+    return false;
+  }
+
+  /// 当前平台支持的视频输出驱动（mpv 的 vo）
+  static bool isVideoDriverValidForPlatform(String driver) {
+    if (driver.isEmpty) {
+      return false;
+    }
+    const cross = {"gpu", "gpu-next", "null", "sdl"};
+    if (cross.contains(driver)) {
+      return true;
+    }
+    if (Platform.isAndroid) {
+      return driver == "mediacodec_embed";
+    }
+    if (Platform.isWindows) {
+      return {"direct3d", "libmpv"}.contains(driver);
+    }
+    if (Platform.isLinux) {
+      return {"xv", "x11", "vdpau", "dmabuf-wayland", "vaapi"}.contains(driver);
+    }
+    return false;
+  }
+
+  /// 按当前平台默认值
+  static String defaultAudioDriver() {
+    if (Platform.isAndroid) {
+      return "audiotrack";
+    }
+    if (Platform.isLinux) {
+      return "pulse";
+    }
+    if (Platform.isWindows) {
+      return "wasapi";
+    }
+    if (Platform.isIOS) {
+      return "audiounit";
+    }
+    if (Platform.isMacOS) {
+      return "coreaudio";
+    }
+    return "sdl";
+  }
+
+  static String defaultVideoDriver() {
+    if (Platform.isAndroid) {
+      return "gpu";
+    }
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      return "gpu";
+    }
+    return "gpu";
+  }
+
+  /// 启动时纠正「跨平台同步/误选」导致的非法驱动（否则 mpv 音频输出创建失败 → 无声）
+  void sanitizePlayerOutput() {
+    try {
+      if (!customPlayerOutput.value) {
+        return;
+      }
+      var audio = audioOutputDriver.value;
+      if (!isAudioDriverValidForPlatform(audio)) {
+        Log.logPrint("音频输出驱动 [$audio] 不适用于当前平台，已回退为默认值");
+        setAudioOutputDriver(defaultAudioDriver());
+      }
+      var video = videoOutputDriver.value;
+      if (!isVideoDriverValidForPlatform(video)) {
+        Log.logPrint("视频输出驱动 [$video] 不适用于当前平台，已回退为默认值");
+        setVideoOutputDriver(defaultVideoDriver());
+      }
+    } catch (e) {
+      Log.logPrint("纠正播放器输出设置失败: $e");
+    }
   }
 
   void initSiteSort() {
