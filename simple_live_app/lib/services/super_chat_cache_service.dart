@@ -58,13 +58,17 @@ class SuperChatCacheService extends GetxService {
     var result = <LiveSuperChatMessage>[];
     try {
       var room = _readRoom(siteId, roomId);
+      var roomKey = _roomKey(siteId, roomId);
       if (room == null) {
+        Log.d("SC缓存读取: $roomKey 无记录");
         return result;
       }
       var items = room["items"];
       if (items is! List || items.isEmpty) {
+        Log.d("SC缓存读取: $roomKey 记录为空");
         return result;
       }
+      Log.d("SC缓存读取: $roomKey 共${items.length}条 leftAt=${room["leftAt"]}");
       var leftAt = room["leftAt"];
       var now = DateTime.now();
       if (leftAt is int) {
@@ -99,6 +103,7 @@ class SuperChatCacheService extends GetxService {
       String siteId, String roomId, LiveSuperChatMessage sc) async {
     try {
       if (_box == null) {
+        Log.logPrint("SC缓存不可用（box 未打开），跳过写入");
         return;
       }
       var key = _roomKey(siteId, roomId);
@@ -119,6 +124,7 @@ class SuperChatCacheService extends GetxService {
       // 还在房间里：不计时
       room["leftAt"] = null;
       await _box!.put(key, room);
+      Log.d("SC缓存写入: $key 共${items.length}条");
     } catch (e) {
       Log.logPrint("保存SC缓存失败: $e");
     }

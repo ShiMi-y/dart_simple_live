@@ -182,8 +182,8 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   // 弹窗逻辑
 
   void refreshRoom() {
-    //messages.clear();
-    superChats.clear();
+    // 注意：刷新直播（重连/重载）不清空 SC —— SC 是历史数据，不是流状态；
+    // 清空会导致"刷新后 SC 栏空白"。只有切换房间（resetRoom）才需要清空。
     liveDanmaku.stop();
 
     loadData();
