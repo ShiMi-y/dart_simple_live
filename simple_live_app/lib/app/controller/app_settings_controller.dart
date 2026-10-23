@@ -8,6 +8,9 @@ import 'package:simple_live_app/services/local_storage_service.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+/// 诊断版标记：为 true 时启动即强制开启日志，并启用音频诊断导出
+const bool kAudioDiagBuild = true;
+
 class AppSettingsController extends GetxController {
   static AppSettingsController get instance =>
       Get.find<AppSettingsController>();
@@ -159,6 +162,10 @@ class AppSettingsController extends GetxController {
 
     logEnable.value = LocalStorageService.instance
         .getValue(LocalStorageService.kLogEnable, false);
+    // 诊断版：启动即强制开启日志记录（用于收集 Android 无声问题现场）
+    if (kAudioDiagBuild) {
+      logEnable.value = true;
+    }
     if (logEnable.value) {
       Log.initWriter();
     }

@@ -7,6 +7,8 @@ import 'package:simple_live_app/app/app_style.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/modules/settings/other/other_settings_controller.dart';
+import 'package:simple_live_app/services/audio_diag_service.dart';
+import 'package:simple_live_app/widgets/settings/settings_action.dart';
 import 'package:simple_live_app/widgets/settings/settings_card.dart';
 import 'package:simple_live_app/widgets/settings/settings_menu.dart';
 import 'package:simple_live_app/widgets/settings/settings_switch.dart';
@@ -157,6 +159,14 @@ class OtherSettingsPage extends GetView<OtherSettingsController> {
                     subtitle: "开启后将记录调试日志，可以将日志文件提供给开发者用于排查问题",
                     onChanged: controller.setLogEnable,
                   ),
+                ),
+                AppStyle.divider,
+                SettingsAction(
+                  title: "音频诊断导出",
+                  subtitle: "导出播放器音频状态、设备信息与最近日志（排查无声问题）",
+                  onTap: () {
+                    AudioDiagService.instance.shareReport();
+                  },
                 ),
               ],
             ),

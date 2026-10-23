@@ -18,6 +18,7 @@ import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/controller/base_controller.dart';
 import 'package:simple_live_app/app/custom_throttle.dart';
 import 'package:simple_live_app/app/log.dart';
+import 'package:simple_live_app/services/audio_diag_service.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:window_manager/window_manager.dart';
@@ -56,6 +57,7 @@ mixin PlayerMixin {
       }
       _currentAoChain = chain;
       await pp.setProperty('ao', chain);
+      AudioDiagService.instance.addEvent("Android ao chain = $chain");
       // media_kit 仓库更新导致的问题，临时解决办法
       await pp.setProperty('force-seekable', 'yes');
       Log.d("Android 音频输出驱动链: $chain");
@@ -79,6 +81,9 @@ mixin PlayerMixin {
     _audioDiagBound = true;
     player.stream.audioParams.listen((params) {
       _audioSeen = true;
+      AudioDiagService.instance.addEvent(
+        "AudioParams ${params.sampleRate}Hz/${params.channelCount}ch/${params.format}",
+      );
       Log.d(
         "音频参数: ${params.sampleRate}Hz/${params.channelCount}ch/${params.format}",
       );
@@ -90,9 +95,13 @@ mixin PlayerMixin {
       _audioWatchdog?.cancel();
       _audioWatchdog = Timer(const Duration(seconds: 10), () async {
         if (_audioSeen) {
+          await AudioDiagService.instance.capturePlayer(player);
           return;
         }
         Log.logPrint("播放10秒仍无音频参数，尝试切换音频输出驱动（原: $_currentAoChain）");
+        AudioDiagService.instance
+            .addEvent("10秒无音频参数，尝试切换驱动（原 $_currentAoChain）");
+        await AudioDiagService.instance.capturePlayer(player);
         try {
           var fallback = Platform.isAndroid
               ? "opensles,aaudio,audiotrack"

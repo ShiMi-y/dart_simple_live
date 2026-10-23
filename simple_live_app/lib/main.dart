@@ -30,6 +30,7 @@ import 'package:simple_live_app/services/douyin_account_service.dart';
 import 'package:simple_live_app/services/db_service.dart';
 import 'package:simple_live_app/services/follow_service.dart';
 import 'package:simple_live_app/services/local_storage_service.dart';
+import 'package:simple_live_app/services/audio_diag_service.dart';
 import 'package:simple_live_app/services/super_chat_cache_service.dart';
 import 'package:simple_live_app/services/live_notify_service.dart';
 import 'package:simple_live_app/services/shared_follow_service.dart';
@@ -230,6 +231,7 @@ Future initServices() async {
   Log.d("Init LocalStorage Service");
   await Get.put(LocalStorageService()).init();
   await Get.put(SuperChatCacheService()).init();
+  Get.put(AudioDiagService());
   await Get.put(LiveNotifyService()).init();
   await Get.put(DBService()).init();
   // 多开：共享同一份关注数据（必须在 DBService 之后、FollowService 之前）
