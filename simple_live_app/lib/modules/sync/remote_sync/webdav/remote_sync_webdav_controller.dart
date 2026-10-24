@@ -53,6 +53,8 @@ class RemoteSyncWebDAVController extends BaseController {
     "VideoOutputDriver",
     "VideoHardwareDecoder",
     "PlayerCompatMode",
+    "PlayerVolume",
+    "VideoVolume",
   };
   // 专有特性：SC关注UID（哔哩哔哩UID -> SC）
   final _userScUidJsonName = 'SimpleLive_sc_uid.json';

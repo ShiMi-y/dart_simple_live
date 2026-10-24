@@ -141,6 +141,15 @@ class AppSettingsController extends GetxController {
       LocalStorageService.kVideoVolume,
       100.0,
     );
+
+    // 防御：历史数据/同步可能把音量存成 0，表现为「有画面完全没声音」的假故障
+    if (playerVolume.value <= 0) {
+      Log.logPrint("检测到播放器音量为0（可能来自同步/误触），已恢复默认100");
+      setPlayerVolume(100.0);
+    }
+    if (videoVolume.value <= 0) {
+      setVideoVolume(100.0);
+    }
     liveNotifyEnable.value = LocalStorageService.instance.getValue(
       LocalStorageService.kLiveNotifyEnable,
       true,
