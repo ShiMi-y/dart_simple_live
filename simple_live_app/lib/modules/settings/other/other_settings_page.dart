@@ -3,11 +3,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:remixicon/remixicon.dart';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:simple_live_app/app/app_style.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/modules/settings/other/other_settings_controller.dart';
 import 'package:simple_live_app/services/audio_diag_service.dart';
+import 'package:simple_live_app/services/background_play_service.dart';
 import 'package:simple_live_app/widgets/settings/settings_action.dart';
 import 'package:simple_live_app/widgets/settings/settings_card.dart';
 import 'package:simple_live_app/widgets/settings/settings_menu.dart';
@@ -166,6 +168,25 @@ class OtherSettingsPage extends GetView<OtherSettingsController> {
                   subtitle: "导出播放器音频状态、设备信息与最近日志（排查无声问题）",
                   onTap: () {
                     AudioDiagService.instance.shareReport();
+                  },
+                ),
+                AppStyle.divider,
+                SettingsAction(
+                  title: "后台播放保活",
+                  subtitle:
+                      "通知权限与电池优化豁免（vivo/iQOO 需再在系统设置里允许自启动与后台运行）",
+                  onTap: () async {
+                    await BackgroundPlayService.ensurePermissions(force: true);
+                    var summary =
+                        await BackgroundPlayService.permissionSummary();
+                    SmartDialog.showToast(summary);
+                  },
+                ),
+                SettingsAction(
+                  title: "打开系统应用设置",
+                  subtitle: "在「电池 → 后台耗电管理 / 自启动」中允许本应用后台运行",
+                  onTap: () {
+                    BackgroundPlayService.openSystemSettings();
                   },
                 ),
               ],

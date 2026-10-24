@@ -8,6 +8,10 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.os.PowerManager
 import android.os.Build
 import android.os.IBinder
 
@@ -41,9 +45,73 @@ class PlaybackService : Service() {
         }
     }
 
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var audioFocusRequest: AudioFocusRequest? = null
+    private val audioManager by lazy { getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+
     override fun onCreate() {
         super.onCreate()
         createChannel()
+    }
+
+    /** 持有 CPU 唤醒锁：息屏/后台时保证音频线程能继续解码 */
+    private fun acquireWakeLock() {
+        try {
+            if (wakeLock == null) {
+                val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "simple_live:playback")
+                wakeLock?.setReferenceCounted(false)
+            }
+            if (wakeLock?.isHeld != true) {
+                wakeLock?.acquire(6 * 60 * 60 * 1000L)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    /** 申请音频焦点：避免被其他 App 抢占后系统暂停本应用播放 */
+    private fun requestAudioFocus() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (audioFocusRequest == null) {
+                    val attrs = AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                        .build()
+                    audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                        .setAudioAttributes(attrs)
+                        .setOnAudioFocusChangeListener { }
+                        .build()
+                }
+                audioFocusRequest?.let { audioManager.requestAudioFocus(it) }
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+            wakeLock = null
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun abandonAudioFocus() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager.abandonAudioFocus(null)
+            }
+        } catch (_: Exception) {
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -57,6 +125,8 @@ class PlaybackService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+        acquireWakeLock()
+        requestAudioFocus()
         return START_STICKY
     }
 
@@ -103,6 +173,8 @@ class PlaybackService : Service() {
     }
 
     override fun onDestroy() {
+        releaseWakeLock()
+        abandonAudioFocus()
         super.onDestroy()
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
