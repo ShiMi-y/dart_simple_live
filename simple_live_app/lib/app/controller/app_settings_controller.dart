@@ -235,6 +235,9 @@ class AppSettingsController extends GetxController {
         .getValue(LocalStorageService.kUpdateFollowThreadCount, 0);  // 默认 0 = 自动
   }
 
+  /// 移动端：播放音量统一交给系统媒体音量（App 内不再做二次衰减）
+  static bool get useSystemVolume => Platform.isAndroid || Platform.isIOS;
+
   /// 当前平台支持的音频输出驱动（mpv 的 ao）
   static bool isAudioDriverValidForPlatform(String driver) {
     if (driver.isEmpty) {

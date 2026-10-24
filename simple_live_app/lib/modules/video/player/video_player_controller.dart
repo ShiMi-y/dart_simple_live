@@ -9,6 +9,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/controller/base_controller.dart';
 import 'package:simple_live_app/app/log.dart';
+import 'package:volume_controller/volume_controller.dart';
 import 'package:simple_live_app/models/bilibili_video.dart';
 import 'package:simple_live_app/services/bilibili_video_service.dart';
 import 'package:window_manager/window_manager.dart';
@@ -85,9 +86,15 @@ class VideoPlayerController extends BaseController {
     );
     videoController = VideoController(player);
     // 恢复上次的视频音量
-    volume.value = AppSettingsController.instance.videoVolume.value;
-    _lastVolume = volume.value <= 0 ? 100 : volume.value;
-    player.setVolume(volume.value);
+    if (AppSettingsController.useSystemVolume) {
+      // 移动端：音量交给系统媒体音量，mpv 固定 100 避免二次衰减
+      player.setVolume(100);
+      _refreshSystemVolume();
+    } else {
+      volume.value = AppSettingsController.instance.videoVolume.value;
+      _lastVolume = volume.value <= 0 ? 100 : volume.value;
+      player.setVolume(volume.value);
+    }
     initDanmakuController = (e) {
       danmakuController = e;
     };
@@ -224,11 +231,25 @@ class VideoPlayerController extends BaseController {
   }
 
   /// 调整视频音量（0-100），会记忆到设置
+  /// 移动端：以系统媒体音量为准
+  Future<void> _refreshSystemVolume() async {
+    try {
+      var v = await VolumeController.instance.getVolume();
+      volume.value = (v * 100).clamp(0.0, 100.0);
+      _lastVolume = volume.value <= 0 ? 100 : volume.value;
+    } catch (_) {}
+  }
+
   void setVolume(double value) {
     var v = value.clamp(0.0, 100.0);
     volume.value = v;
     if (v > 0) {
       _lastVolume = v;
+    }
+    if (AppSettingsController.useSystemVolume) {
+      VolumeController.instance.setVolume(v / 100);
+      player.setVolume(100);
+      return;
     }
     player.setVolume(v);
     AppSettingsController.instance.setVideoVolume(v);
@@ -240,9 +261,17 @@ class VideoPlayerController extends BaseController {
       _lastVolume = volume.value;
       volume.value = 0;
       player.setVolume(0);
-      AppSettingsController.instance.setVideoVolume(0);
+      if (!AppSettingsController.useSystemVolume) {
+        AppSettingsController.instance.setVideoVolume(0);
+      }
     } else {
-      setVolume(_lastVolume <= 0 ? 100 : _lastVolume);
+      var v = _lastVolume <= 0 ? 100.0 : _lastVolume;
+      if (AppSettingsController.useSystemVolume) {
+        volume.value = v;
+        player.setVolume(100);
+      } else {
+        setVolume(v);
+      }
     }
   }
 

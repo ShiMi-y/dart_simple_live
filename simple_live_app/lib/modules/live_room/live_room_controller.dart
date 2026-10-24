@@ -15,6 +15,7 @@ import 'package:simple_live_app/app/constant.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/event_bus.dart';
 import 'package:simple_live_app/app/log.dart';
+import 'package:volume_controller/volume_controller.dart';
 import 'package:simple_live_app/app/sites.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/models/db/follow_user.dart';
@@ -797,7 +798,20 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     );
   }
 
+  /// 移动端音量以系统媒体音量为准
+  Rx<double> systemVolume = 100.0.obs;
+
+  Future<void> _refreshSystemVolume() async {
+    try {
+      var v = await VolumeController.instance.getVolume();
+      systemVolume.value = (v * 100).clamp(0, 100);
+    } catch (_) {}
+  }
+
   void showVolumeSlider(BuildContext targetContext) {
+    if (AppSettingsController.useSystemVolume) {
+      _refreshSystemVolume();
+    }
     SmartDialog.showAttach(
       targetContext: targetContext,
       alignment: Alignment.topCenter,
@@ -816,8 +830,17 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
               child: Slider(
                 min: 0,
                 max: 100,
-                value: AppSettingsController.instance.playerVolume.value,
+                value: AppSettingsController.useSystemVolume
+                    ? systemVolume.value
+                    : AppSettingsController.instance.playerVolume.value,
                 onChanged: (newValue) {
+                  if (AppSettingsController.useSystemVolume) {
+                    // 移动端：直接调系统媒体音量
+                    systemVolume.value = newValue;
+                    VolumeController.instance.setVolume(newValue / 100);
+                    player.setVolume(100);
+                    return;
+                  }
                   player.setVolume(newValue);
                   AppSettingsController.instance.setPlayerVolume(newValue);
                 },
