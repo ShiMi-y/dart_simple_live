@@ -15,6 +15,7 @@ import 'package:simple_live_app/app/constant.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/event_bus.dart';
 import 'package:simple_live_app/app/log.dart';
+import 'package:simple_live_app/services/background_play_service.dart';
 import 'package:volume_controller/volume_controller.dart';
 import 'package:simple_live_app/app/sites.dart';
 import 'package:simple_live_app/app/utils.dart';
@@ -1464,6 +1465,11 @@ ${error?.stackTrace}''');
 
   @override
   void onClose() {
+    try {
+      BackgroundPlayService.stop();
+    } catch (e) {
+      Log.logPrint("停止后台播放服务失败: $e");
+    }
     // 各步骤独立 try/catch：长时间播放后返回时，任何一步异常都不应导致应用闪退
     try {
       WidgetsBinding.instance.removeObserver(this);

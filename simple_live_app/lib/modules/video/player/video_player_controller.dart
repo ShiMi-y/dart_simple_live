@@ -9,6 +9,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/controller/base_controller.dart';
 import 'package:simple_live_app/app/log.dart';
+import 'package:simple_live_app/services/background_play_service.dart';
 import 'package:volume_controller/volume_controller.dart';
 import 'package:simple_live_app/models/bilibili_video.dart';
 import 'package:simple_live_app/services/bilibili_video_service.dart';
@@ -98,6 +99,13 @@ class VideoPlayerController extends BaseController {
     initDanmakuController = (e) {
       danmakuController = e;
     };
+    player.stream.playing.listen((playing) {
+      if (playing) {
+        BackgroundPlayService.start();
+      } else {
+        BackgroundPlayService.stop();
+      }
+    });
     _bindStreams();
     load();
   }

@@ -18,6 +18,7 @@ import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/controller/base_controller.dart';
 import 'package:simple_live_app/app/custom_throttle.dart';
 import 'package:simple_live_app/app/log.dart';
+import 'package:simple_live_app/services/background_play_service.dart';
 import 'package:simple_live_app/services/audio_diag_service.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -89,6 +90,12 @@ mixin PlayerMixin {
       );
     });
     player.stream.playing.listen((playing) {
+      // 播放中启动前台服务（Android 后台保活），暂停则停止
+      if (playing) {
+        BackgroundPlayService.start();
+      } else {
+        BackgroundPlayService.stop();
+      }
       if (!playing) {
         return;
       }
