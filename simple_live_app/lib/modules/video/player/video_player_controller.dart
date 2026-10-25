@@ -344,10 +344,8 @@ class VideoPlayerController extends BaseController {
       // 最大化状态下进全屏会残留标题栏（window_manager 的实现限制），先恢复窗口
       try {
         _wasMaximizedBeforeFullscreen = await windowManager.isMaximized();
-        if (_wasMaximizedBeforeFullscreen) {
-          await windowManager.unmaximize();
-          await Future.delayed(const Duration(milliseconds: 100));
-        }
+        await windowManager.unmaximize();
+        await Future.delayed(const Duration(milliseconds: 150));
       } catch (e) {
         Log.logPrint("视频全屏前取消最大化失败: $e");
       }

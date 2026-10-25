@@ -361,12 +361,12 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
       return;
     }
     try {
-      // 关键：最大化状态下进全屏，window_manager 会跳过 SetAsFrameless，导致顶部保留标题栏/边框
+      // 关键：最大化状态下进全屏，window_manager 会跳过 SetAsFrameless，导致顶部保留标题栏/边框。
+      // isMaximized() 在部分场景不可靠（脚本最大化/贴边最大化），因此无条件先 unmaximize。
       _wasMaximizedBeforeFullscreen = await windowManager.isMaximized();
-      if (_wasMaximizedBeforeFullscreen) {
-        await windowManager.unmaximize();
-        await Future.delayed(const Duration(milliseconds: 100));
-      }
+      await windowManager.unmaximize();
+      await Future.delayed(const Duration(milliseconds: 150));
+      Log.d("进入全屏：已取消最大化(wasMaximized=$_wasMaximizedBeforeFullscreen)");
     } catch (e) {
       Log.logPrint("全屏前取消最大化失败: $e");
     }
