@@ -345,8 +345,11 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
     await WakelockPlus.disable();
   }
 
+  /// 全屏前窗口是否处于最大化（window_manager 在最大化状态下进全屏不会去掉标题栏）
+  bool _wasMaximizedBeforeFullscreen = false;
+
   /// 进入全屏
-  void enterFullScreen() {
+  Future<void> enterFullScreen() async {
     fullScreenState.value = true;
     if (Platform.isAndroid || Platform.isIOS) {
       //全屏
@@ -355,24 +358,39 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
         //横屏
         setLandscapeOrientation();
       }
-    } else {
-      windowManager.setFullScreen(true);
+      return;
     }
-    //danmakuController?.clear();
+    try {
+      // 关键：最大化状态下进全屏，window_manager 会跳过 SetAsFrameless，导致顶部保留标题栏/边框
+      _wasMaximizedBeforeFullscreen = await windowManager.isMaximized();
+      if (_wasMaximizedBeforeFullscreen) {
+        await windowManager.unmaximize();
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+    } catch (e) {
+      Log.logPrint("全屏前取消最大化失败: $e");
+    }
+    await windowManager.setFullScreen(true);
   }
 
   /// 退出全屏
-  void exitFull() {
+  Future<void> exitFull() async {
     if (Platform.isAndroid || Platform.isIOS) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge,
           overlays: SystemUiOverlay.values);
       setPortraitOrientation();
     } else {
-      windowManager.setFullScreen(false);
+      await windowManager.setFullScreen(false);
+      if (_wasMaximizedBeforeFullscreen) {
+        try {
+          await windowManager.maximize();
+        } catch (e) {
+          Log.logPrint("退出全屏后恢复最大化失败: $e");
+        }
+        _wasMaximizedBeforeFullscreen = false;
+      }
     }
     fullScreenState.value = false;
-
-    //danmakuController?.clear();
   }
 
   Size? _lastWindowSize;

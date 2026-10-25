@@ -332,13 +332,35 @@ class VideoPlayerController extends BaseController {
       };
 
   /// 桌面端全屏切换
+  bool _wasMaximizedBeforeFullscreen = false;
+
   Future<void> toggleFullscreen() async {
     if (Platform.isAndroid || Platform.isIOS) {
       fullscreen.value = !fullscreen.value;
       return;
     }
     fullscreen.value = !fullscreen.value;
+    if (fullscreen.value) {
+      // 最大化状态下进全屏会残留标题栏（window_manager 的实现限制），先恢复窗口
+      try {
+        _wasMaximizedBeforeFullscreen = await windowManager.isMaximized();
+        if (_wasMaximizedBeforeFullscreen) {
+          await windowManager.unmaximize();
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+      } catch (e) {
+        Log.logPrint("视频全屏前取消最大化失败: $e");
+      }
+    }
     await windowManager.setFullScreen(fullscreen.value);
+    if (!fullscreen.value && _wasMaximizedBeforeFullscreen) {
+      try {
+        await windowManager.maximize();
+      } catch (e) {
+        Log.logPrint("视频退出全屏后恢复最大化失败: $e");
+      }
+      _wasMaximizedBeforeFullscreen = false;
+    }
   }
 
   @override
