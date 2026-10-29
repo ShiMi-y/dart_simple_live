@@ -15,6 +15,7 @@ import 'package:simple_live_app/app/constant.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/event_bus.dart';
 import 'package:simple_live_app/app/log.dart';
+import 'package:simple_live_app/services/audio_diag_service.dart';
 import 'package:simple_live_app/services/background_play_service.dart';
 import 'package:volume_controller/volume_controller.dart';
 import 'package:simple_live_app/app/sites.dart';
@@ -1421,6 +1422,10 @@ ${error?.stackTrace}''');
 
     if (state == AppLifecycleState.paused) {
       Log.d("进入后台");
+      AudioDiagService.instance.addEvent(
+        "生命周期: paused, player.playing=${player.state.playing}",
+      );
+      AudioDiagService.instance.capturePlayer(player, room: "$site/$roomId");
       //进入后台，关闭弹幕
       danmakuController?.clear();
       isBackground = true;
@@ -1428,6 +1433,9 @@ ${error?.stackTrace}''');
     //返回前台
     if (state == AppLifecycleState.resumed) {
       Log.d("返回前台");
+      AudioDiagService.instance.addEvent(
+        "生命周期: resumed, player.playing=${player.state.playing}",
+      );
       isBackground = false;
     }
   }

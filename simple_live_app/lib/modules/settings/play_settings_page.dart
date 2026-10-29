@@ -75,6 +75,7 @@ class PlaySettingsPage extends GetView<AppSettingsController> {
                 Obx(
                   () => SettingsSwitch(
                     title: "进入后台自动暂停",
+                    subtitle: "开启后切到后台会暂停播放；需要后台听直播/视频请保持关闭",
                     value: controller.playerAutoPause.value,
                     onChanged: (e) {
                       controller.setPlayerAutoPause(e);

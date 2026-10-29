@@ -91,6 +91,7 @@ mixin PlayerMixin {
     });
     player.stream.playing.listen((playing) {
       // 播放中启动前台服务（Android 后台保活），暂停则停止
+      AudioDiagService.instance.addEvent("playing=$playing");
       if (playing) {
         BackgroundPlayService.start();
       } else {
