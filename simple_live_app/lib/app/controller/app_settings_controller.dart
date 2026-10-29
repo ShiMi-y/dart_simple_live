@@ -207,6 +207,24 @@ class AppSettingsController extends GetxController {
       Platform.isAndroid ? "auto-safe" : "auto",
     );
 
+    // 一次性：移动端关闭「进入后台自动暂停」（该值可能来自历史同步），保证后台能继续播放
+    if (useSystemVolume) {
+      try {
+        var migrated = LocalStorageService.instance
+            .getValue("BackgroundPlayPauseMigrated", false);
+        if (!migrated) {
+          if (playerAutoPause.value) {
+            setPlayerAutoPause(false);
+            Log.logPrint("已关闭「进入后台自动暂停」以支持后台播放（可在播放设置中重新开启）");
+          }
+          LocalStorageService.instance
+              .setValue("BackgroundPlayPauseMigrated", true);
+        }
+      } catch (e) {
+        Log.logPrint("后台播放设置迁移失败: $e");
+      }
+    }
+
     // 一次性迁移：画质默认值由「中间」改为「最高（原画）」
     try {
       var migrated = LocalStorageService.instance

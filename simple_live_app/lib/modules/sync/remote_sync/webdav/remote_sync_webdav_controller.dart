@@ -56,6 +56,19 @@ class RemoteSyncWebDAVController extends BaseController {
     "PlayerVolume",
     "VideoVolume",
     "PlayerAutoPause",
+    // 屏幕尺寸/显示密度相关：不同端屏幕差异大，跨端继承会显示异常
+    "ScaleMode",
+    "DanmuSize",
+    "DanmuSpeed",
+    "DanmuArea",
+    "DanmuOpacity",
+    "DanmuStrokeWidth",
+    "DanmuTopMargin",
+    "DanmuBottomMargin",
+    "DanmuFontWeight",
+    "ChatTextSize",
+    "ChatTextGap",
+    "ChatBubbleStyle",
   };
   // 专有特性：SC关注UID（哔哩哔哩UID -> SC）
   final _userScUidJsonName = 'SimpleLive_sc_uid.json';
