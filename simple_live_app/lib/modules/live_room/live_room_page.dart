@@ -7,6 +7,7 @@ import 'package:lottie/lottie.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:remixicon/remixicon.dart';
 import 'package:simple_live_app/app/app_style.dart';
+import 'package:simple_live_app/models/monitor_live_message.dart';
 import 'package:simple_live_app/app/constant.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/sites.dart';
@@ -575,7 +576,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                         AppStyle.edgeInsetsA4.copyWith(left: 12, right: 12),
                     child: Text.rich(
                       TextSpan(
-                        text: "${message.userName}：",
+                        text: "${message is MonitorLiveMessage ? "[${message.roomTag}] " : ""}${message.userName}：",
                         style: TextStyle(
                           color: marked ? Colors.red : Colors.grey,
                           fontWeight:
@@ -603,7 +604,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
             )
           : Text.rich(
               TextSpan(
-                text: "${message.userName}：",
+                text: "${message is MonitorLiveMessage ? "[${message.roomTag}] " : ""}${message.userName}：",
                 style: TextStyle(
                   color: marked ? Colors.red : Colors.grey,
                   fontWeight: marked ? FontWeight.bold : FontWeight.normal,

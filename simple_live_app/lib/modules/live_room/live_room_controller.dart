@@ -15,6 +15,8 @@ import 'package:simple_live_app/app/constant.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/event_bus.dart';
 import 'package:simple_live_app/app/log.dart';
+import 'package:simple_live_app/services/local_storage_service.dart';
+import 'package:simple_live_app/models/monitor_live_message.dart';
 import 'package:simple_live_app/services/audio_diag_service.dart';
 import 'package:simple_live_app/services/background_play_service.dart';
 import 'package:volume_controller/volume_controller.dart';
@@ -70,6 +72,14 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
   /// 聊天信息
   RxList<LiveMessage> messages = RxList<LiveMessage>();
+
+  /// 同时监控的其它哔哩哔哩直播间（房间号）
+  final RxList<String> monitorRoomIds = <String>[].obs;
+
+  /// 房间号 -> 标题
+  final RxMap<String, String> monitorRoomTitles = RxMap<String, String>();
+
+  final Map<String, LiveDanmaku> _monitorDanmaku = {};
 
   /// 清晰度数据
   RxList<LivePlayQuality> qualites = RxList<LivePlayQuality>();
@@ -204,6 +214,126 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   }
 
   /// 初始化弹幕接收事件
+  /// 恢复本房间配置的「同时监控」列表并连接
+  Future<void> loadMonitorRooms() async {
+    try {
+      var saved = LocalStorageService.instance
+          .getValue("MonitorRooms_${site}_$roomId", "")
+          .toString();
+      for (var id in saved.split(",")) {
+        var rid = id.trim();
+        if (rid.isEmpty || monitorRoomIds.contains(rid)) {
+          continue;
+        }
+        await startMonitorRoom(rid, persist: false);
+      }
+    } catch (e) {
+      Log.logPrint("恢复同时监控房间失败: $e");
+    }
+  }
+
+  Future<void> _persistMonitorRooms() async {
+    try {
+      await LocalStorageService.instance.setValue(
+        "MonitorRooms_${site}_$roomId",
+        monitorRoomIds.join(","),
+      );
+    } catch (e) {
+      Log.logPrint("保存同时监控房间失败: $e");
+    }
+  }
+
+  /// 开始接收某个房间的弹幕（仅哔哩哔哩）
+  Future<bool> startMonitorRoom(String input, {bool persist = true}) async {
+    var rid = _parseMonitorRoomId(input);
+    if (rid == null) {
+      SmartDialog.showToast("请输入正确的哔哩哔哩房间号或直播间链接");
+      return false;
+    }
+    if (monitorRoomIds.contains(rid)) {
+      SmartDialog.showToast("该房间已在监控列表中");
+      return false;
+    }
+    if (rid == roomId) {
+      SmartDialog.showToast("当前房间无需重复添加");
+      return false;
+    }
+    try {
+      var biliSite = Sites.allSites[Constant.kBiliBili];
+      if (biliSite == null) {
+        return false;
+      }
+      var detail = await biliSite.liveSite.getRoomDetail(roomId: rid);
+      var title = detail.title.isEmpty ? "房间$rid" : detail.title;
+      monitorRoomTitles[rid] = title;
+      var danmaku = biliSite.liveSite.getDanmaku();
+      danmaku.onMessage = (msg) {
+        if (msg.type != LiveMessageType.chat) {
+          return;
+        }
+        if (messages.length > 200 && !disableAutoScroll.value) {
+          messages.removeAt(0);
+        }
+        messages.add(
+          MonitorLiveMessage(
+            roomTag: monitorRoomTitles[rid] ?? rid,
+            type: msg.type,
+            userName: msg.userName,
+            message: msg.message,
+            data: msg.data,
+            color: msg.color,
+            userId: msg.userId,
+          ),
+        );
+      };
+      danmaku.onReady = () {
+        messages.add(
+          LiveMessage(
+            type: LiveMessageType.chat,
+            userName: "LiveSysMessage",
+            message: "已开始同步「$title」的弹幕",
+            color: LiveMessageColor(128, 128, 128),
+          ),
+        );
+      };
+      await danmaku.start(detail.danmakuData);
+      _monitorDanmaku[rid] = danmaku;
+      monitorRoomIds.add(rid);
+      if (persist) {
+        await _persistMonitorRooms();
+      }
+      return true;
+    } catch (e) {
+      Log.logPrint("开始监控房间 $rid 失败: $e");
+      SmartDialog.showToast("添加失败：$e");
+      return false;
+    }
+  }
+
+  String? _parseMonitorRoomId(String input) {
+    var text = input.trim();
+    if (text.isEmpty) {
+      return null;
+    }
+    var m = RegExp(r"live\.bilibili\.com/(\d+)").firstMatch(text);
+    if (m != null) {
+      return m.group(1);
+    }
+    return RegExp(r"^\d+$").hasMatch(text) ? text : null;
+  }
+
+  Future<void> removeMonitorRoom(String rid) async {
+    try {
+      await _monitorDanmaku[rid]?.stop();
+    } catch (e) {
+      Log.logPrint("停止监控房间失败: $e");
+    }
+    _monitorDanmaku.remove(rid);
+    monitorRoomIds.remove(rid);
+    monitorRoomTitles.remove(rid);
+    await _persistMonitorRooms();
+  }
+
   void initDanmau() {
     liveDanmaku.onMessage = onWSMessage;
     liveDanmaku.onClose = onWSClose;
@@ -211,7 +341,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   }
 
   /// 接收到WebSocket信息
-  void onWSMessage(LiveMessage msg) {
+  void onWSMessage(LiveMessage msg, {String? roomTag}) {
     if (msg.type == LiveMessageType.chat) {
       // 「SC关注UID」命中的发言始终以SC形式显示；
       // 同时聊天区保留该发言，并把ID与文本标红（见 buildMessageItem）
@@ -243,6 +373,21 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         }
       }
 
+      if (roomTag != null) {
+        // 来自「同时监控」的其它房间：带房间标签加入聊天区，不叠加到当前画面弹幕
+        messages.add(
+          MonitorLiveMessage(
+            roomTag: roomTag,
+            type: msg.type,
+            userName: msg.userName,
+            message: msg.message,
+            data: msg.data,
+            color: msg.color,
+            userId: msg.userId,
+          ),
+        );
+        return;
+      }
       messages.add(msg);
 
       WidgetsBinding.instance.addPostFrameCallback(
@@ -349,6 +494,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       addSysMsg("开始连接弹幕服务器");
       initDanmau();
       liveDanmaku.start(detail.value?.danmakuData);
+      loadMonitorRooms();
       startLiveDurationTimer(); // 启动开播时长定时器
     } catch (e) {
       Log.logPrint(e);
@@ -1033,6 +1179,18 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
                 AppStyle.divider,
                 Obx(
                   () => SettingsAction(
+                    title: "同时监控的直播间",
+                    subtitle: "哔哩哔哩：把其它房间的弹幕一起显示在当前聊天区",
+                    value: "${monitorRoomIds.length}个",
+                    onTap: () {
+                      Get.back();
+                      showMonitorRoomsSheet();
+                    },
+                  ),
+                ),
+                AppStyle.divider,
+                Obx(
+                  () => SettingsAction(
                     title: "SC关注UID",
                     subtitle: "哔哩哔哩：这些UID的发言始终作为SC显示",
                     value:
@@ -1478,6 +1636,14 @@ ${error?.stackTrace}''');
     } catch (e) {
       Log.logPrint("停止后台播放服务失败: $e");
     }
+    try {
+      for (var danmaku in _monitorDanmaku.values) {
+        danmaku.stop();
+      }
+      _monitorDanmaku.clear();
+    } catch (e) {
+      Log.logPrint("停止同时监控失败: $e");
+    }
     // 各步骤独立 try/catch：长时间播放后返回时，任何一步异常都不应导致应用闪退
     try {
       WidgetsBinding.instance.removeObserver(this);
@@ -1512,5 +1678,103 @@ ${error?.stackTrace}''');
       Log.logPrint("取消时长定时器失败: $e");
     }
     super.onClose();
+  }
+
+  /// 「同时监控的直播间」编辑
+  void showMonitorRoomsSheet() {
+    TextEditingController roomController = TextEditingController();
+
+    void addRoom() {
+      var input = roomController.text.trim();
+      if (input.isEmpty) {
+        return;
+      }
+      startMonitorRoom(input).then((ok) {
+        if (ok) {
+          roomController.clear();
+        }
+      });
+    }
+
+    Get.bottomSheet(
+      Container(
+        padding: AppStyle.edgeInsetsA12,
+        decoration: BoxDecoration(
+          color: Get.theme.cardColor,
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(16),
+            topRight: Radius.circular(16),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text("同时监控的直播间", style: Get.textTheme.titleSmall),
+                const Spacer(),
+                TextButton(
+                  onPressed: () => Get.back(),
+                  child: const Text("关闭"),
+                ),
+              ],
+            ),
+            Text(
+              "添加后，这些房间的弹幕会以「[房间名] 用户：内容」的形式混在当前聊天区（仅哔哩哔哩）",
+              style: Get.textTheme.bodySmall,
+            ),
+            AppStyle.vGap8,
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: roomController,
+                    decoration: const InputDecoration(
+                      labelText: "房间号或直播间链接",
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: (_) => addRoom(),
+                  ),
+                ),
+                AppStyle.hGap8,
+                FilledButton(onPressed: addRoom, child: const Text("添加")),
+              ],
+            ),
+            AppStyle.vGap12,
+            Obx(
+              () => Wrap(
+                runSpacing: 10,
+                spacing: 10,
+                children: monitorRoomIds
+                    .map(
+                      (rid) => InputChip(
+                        label: Text(
+                          monitorRoomTitles[rid] ?? rid,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        onDeleted: () => removeMonitorRoom(rid),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ),
+            Obx(
+              () => monitorRoomIds.isEmpty
+                  ? Padding(
+                      padding: AppStyle.edgeInsetsV4,
+                      child: Text(
+                        "尚未添加其它直播间",
+                        style: Get.textTheme.bodySmall,
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ],
+        ),
+      ),
+      isScrollControlled: true,
+    );
   }
 }
