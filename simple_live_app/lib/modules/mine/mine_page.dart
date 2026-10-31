@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:remixicon/remixicon.dart';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
+import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/app_style.dart';
 import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/app/utils.dart';
@@ -120,6 +122,25 @@ class MinePage extends StatelessWidget {
               ),
               onTap: () {
                 Get.toNamed(RoutePath.kVideo);
+              },
+            ),
+            Divider(
+              indent: 12,
+              endIndent: 12,
+              color: Colors.grey.withAlpha(25),
+            ),
+            ListTile(
+              leading: const Icon(Icons.manage_accounts_outlined),
+              title: const Text("SC关注UID"),
+              subtitle: const Text("哔哩哔哩：这些UID的发言始终以SC显示（多开共享）"),
+              trailing: Obx(
+                () => Text(
+                  "${AppSettingsController.instance.scUidList.length}个",
+                  style: Get.textTheme.bodySmall,
+                ),
+              ),
+              onTap: () {
+                showScUidEditor();
               },
             ),
             Divider(
@@ -310,4 +331,109 @@ class MinePage extends StatelessWidget {
       ),
     );
   }
+}
+
+/// SC 关注UID 编辑（设置页入口，无需进入直播间；持久化 + 多开共享）
+void showScUidEditor() {
+  var controller = TextEditingController();
+
+  void addUids() {
+    var text = controller.text.trim();
+    if (text.isEmpty) {
+      return;
+    }
+    var count = 0;
+    for (var part in text.split(RegExp(r"[,，;；\s]+"))) {
+      var uid = part.trim();
+      if (uid.isEmpty) {
+        continue;
+      }
+      if (!AppSettingsController.instance.scUidList.contains(uid)) {
+        AppSettingsController.instance.addScUid(uid);
+        count++;
+      }
+    }
+    controller.clear();
+    SmartDialog.showToast(count > 0 ? "已添加 $count 个UID" : "没有新增UID（可能已存在）");
+  }
+
+  SmartDialog.show(
+    builder: (context) {
+      return Container(
+        width: 420,
+        padding: AppStyle.edgeInsetsA16,
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: AppStyle.radius12,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("SC关注UID", style: Get.textTheme.titleMedium),
+            AppStyle.vGap8,
+            Text(
+              "哔哩哔哩：这些UID的发言会始终以SC形式显示在聊天区（ID与文本标红）",
+              style: Get.textTheme.bodySmall,
+            ),
+            AppStyle.vGap12,
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: "UID（支持批量，用逗号/空格分隔）",
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onSubmitted: (_) => addUids(),
+            ),
+            AppStyle.vGap8,
+            Row(
+              children: [
+                FilledButton(onPressed: addUids, child: const Text("添加")),
+                AppStyle.hGap8,
+                TextButton(
+                  onPressed: () {
+                    AppSettingsController.instance.clearScUid();
+                    SmartDialog.showToast("已清空");
+                  },
+                  child: const Text("清空全部"),
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: () => SmartDialog.dismiss(),
+                  child: const Text("关闭"),
+                ),
+              ],
+            ),
+            AppStyle.vGap8,
+            Obx(
+              () => Wrap(
+                runSpacing: 10,
+                spacing: 10,
+                children: AppSettingsController.instance.scUidList
+                    .map(
+                      (item) => InkWell(
+                        borderRadius: AppStyle.radius24,
+                        onTap: () {
+                          AppSettingsController.instance.removeScUid(item);
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey),
+                            borderRadius: AppStyle.radius24,
+                          ),
+                          padding:
+                              AppStyle.edgeInsetsH12.copyWith(top: 4, bottom: 4),
+                          child: Text(item, style: Get.textTheme.bodyMedium),
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
 }
