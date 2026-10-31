@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import 'package:simple_live_app/modules/category/detail/category_detail_controller.dart';
 import 'package:simple_live_app/modules/danmaku_monitor/danmaku_monitor_controller.dart';
 import 'package:simple_live_app/modules/danmaku_monitor/danmaku_monitor_page.dart';
+import 'package:simple_live_app/modules/intimacy/intimacy_page.dart';
 import 'package:simple_live_app/modules/category/detail/category_detail_page.dart';
 import 'package:simple_live_app/modules/indexed/indexed_controller.dart';
 import 'package:simple_live_app/modules/live_room/live_room_controller.dart';
@@ -268,6 +269,10 @@ class AppPages {
       bindings: [
         BindingsBuilder.put(() => DanmakuMonitorController()),
       ],
+    ),
+    GetPage(
+      name: RoutePath.kIntimacy,
+      page: () => const IntimacyPage(),
     ),
     //视频播放页
     GetPage(

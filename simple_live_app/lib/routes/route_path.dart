@@ -42,6 +42,9 @@ class RoutePath {
   /// 多房间弹幕监控
   static const kDanmakuMonitor = "/other/danmaku_monitor";
 
+  /// 自动挂亲密度
+  static const kIntimacy = "/other/intimacy";
+
   /// 视频播放页
   static const kVideoPlayer = "/video/player";
 

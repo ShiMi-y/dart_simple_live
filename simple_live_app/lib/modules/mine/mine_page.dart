@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -148,6 +150,25 @@ class MinePage extends StatelessWidget {
               endIndent: 12,
               color: Colors.grey.withAlpha(25),
             ),
+            if (!Platform.isAndroid && !Platform.isIOS)
+              ListTile(
+                leading: const Icon(Icons.favorite_border),
+                title: const Text("自动挂亲密度"),
+                subtitle: const Text("后台监测直播间，开播后自动挂亲密度"),
+                trailing: const Icon(
+                  Icons.chevron_right,
+                  color: Colors.grey,
+                ),
+                onTap: () {
+                  Get.toNamed(RoutePath.kIntimacy);
+                },
+              ),
+            if (!Platform.isAndroid && !Platform.isIOS)
+              Divider(
+                indent: 12,
+                endIndent: 12,
+                color: Colors.grey.withAlpha(25),
+              ),
             ListTile(
               leading: const Icon(Icons.forum_outlined),
               title: const Text("弹幕监控（多房间）"),
