@@ -10,6 +10,8 @@ import 'package:simple_live_app/app/event_bus.dart';
 import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/models/db/follow_user.dart';
 import 'package:simple_live_app/models/db/follow_user_tag.dart';
+import 'package:simple_live_app/app/controller/app_settings_controller.dart';
+import 'package:simple_live_app/services/local_storage_service.dart';
 import 'package:simple_live_app/services/db_service.dart';
 
 /// 多开时的「共享关注数据」
@@ -60,6 +62,12 @@ class SharedFollowService extends GetxService {
       _subscriptions.add(
         DBService.instance.tagBox.watch().listen((_) => _schedulePublish()),
       );
+      // SC关注UID 变化也发布
+      _subscriptions.add(
+        LocalStorageService.instance.scUidBox
+            .watch()
+            .listen((_) => _schedulePublish()),
+      );
 
       // 轮询其他实例的修改
       _timer = Timer.periodic(pollInterval, (_) => _applyFromFileIfNewer());
@@ -92,6 +100,10 @@ class SharedFollowService extends GetxService {
           .getFollowTagList()
           .map((e) => e.toJson())
           .toList();
+      // 多开共享：SC关注UID（哔哩哔哩）
+      var scUids = LocalStorageService.instance.scUidBox.keys
+          .map((e) => e.toString())
+          .toList();
       var updatedAt = DateTime.now().millisecondsSinceEpoch;
       if (updatedAt <= _lastUpdatedAt) {
         updatedAt = _lastUpdatedAt + 1;
@@ -101,12 +113,15 @@ class SharedFollowService extends GetxService {
         "updatedAt": updatedAt,
         "follows": follows,
         "tags": tags,
+        "scUids": scUids,
       });
       var tmp = File("${_file!.path}.tmp");
       await tmp.writeAsString(payload, flush: true);
       await tmp.rename(_file!.path);
       _lastUpdatedAt = updatedAt;
-      Log.d("已发布共享关注数据: ${follows.length}个主播 / ${tags.length}个标签");
+      Log.d(
+        "已发布共享关注数据: ${follows.length}个主播 / ${tags.length}个标签 / ${scUids.length}个SC-UID",
+      );
     } catch (e) {
       Log.logPrint("写入共享关注数据失败: $e");
     } finally {
@@ -185,7 +200,23 @@ class SharedFollowService extends GetxService {
     for (var tag in tags) {
       await db.tagBox.put(tag.id, tag);
     }
-    Log.d("已同步共享关注数据: ${follows.length}个主播 / ${tags.length}个标签");
+    // 共享 SC关注UID
+    var rawScUids = data["scUids"];
+    var scUids = <String>[];
+    if (rawScUids is List) {
+      for (var item in rawScUids) {
+        var uid = item.toString().trim();
+        if (uid.isNotEmpty) {
+          scUids.add(uid);
+        }
+      }
+    }
+    if (rawScUids is List) {
+      await AppSettingsController.instance.replaceScUidList(scUids.toSet());
+    }
+    Log.d(
+      "已同步共享关注数据: ${follows.length}个主播 / ${tags.length}个标签 / ${scUids.length}个SC-UID",
+    );
   }
 
   @override
