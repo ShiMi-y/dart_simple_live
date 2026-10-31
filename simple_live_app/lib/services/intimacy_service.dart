@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:get/get.dart';
 import 'package:simple_live_app/app/log.dart';
@@ -197,6 +198,25 @@ class IntimacyService extends GetxService {
     return "";
   }
 
+  Map? _asMap(dynamic res) {
+    if (res is Map) {
+      return res;
+    }
+    if (res is String) {
+      try {
+        var decoded = jsonDecode(res);
+        return decoded is Map ? decoded : null;
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  String _short(dynamic res) {
+    var text = res?.toString() ?? "";
+    text = text.replaceAll("\n", " ").replaceAll("\r", " ").trim();
+    return text.length > 180 ? "${text.substring(0, 180)}..." : text;
+  }
+
   Future<void> _sendHeartbeat(IntimacyRoom room) async {
     var cookie = BiliBiliAccountService.instance.cookie;
     if (cookie.isEmpty) {
@@ -204,52 +224,61 @@ class IntimacyService extends GetxService {
       return;
     }
     var csrf = _cookieValue(cookie, "bili_jct");
+    var uid = BiliBiliAccountService.instance.uid.toString();
     var header = {
       "Cookie": cookie,
       "User-Agent": _ua,
       "Referer": "https://live.bilibili.com/${room.roomId}",
       "Origin": "https://live.bilibili.com",
+      "Content-Type": "application/x-www-form-urlencoded",
     };
-    var query = {
+    // 哔哩哔哩的网页心跳要求表单编码（JSON 会被忽略并返回非 JSON）
+    var form = {
       "room_id": room.roomId,
+      "uid": uid,
       "csrf": csrf,
       "csrf_token": csrf,
       "platform": "web",
+      "visit_id": "",
     };
-    try {
-      var res = await HttpClient.instance.postJson(
-        "https://api.live.bilibili.com/x/report/click/web/heartbeat",
-        queryParameters: query,
-        header: header,
-      );
-      var code = res is Map ? res["code"] : null;
-      if (code != 0) {
-        // 兼容旧接口
-        res = await HttpClient.instance.postJson(
-          "https://api.live.bilibili.com/x/report/click/heartbeat",
+    var query = {"room_id": room.roomId, "csrf": csrf};
+
+    var endpoints = const [
+      "https://api.live.bilibili.com/x/report/click/web/heartbeat",
+      "https://api.live.bilibili.com/x/report/click/heartbeat",
+    ];
+    var tried = <String>[];
+    for (var url in endpoints) {
+      try {
+        var res = await HttpClient.instance.postJson(
+          url,
           queryParameters: query,
+          data: form,
           header: header,
+          formUrlEncoded: true,
         );
-        code = res is Map ? res["code"] : null;
+        var map = _asMap(res);
+        var code = map?["code"];
+        var msg = (map?["message"] ?? map?["msg"] ?? "").toString();
+        tried.add("$url => code=$code $msg | ${_short(res)}");
+        if (code == 0) {
+          var now = DateTime.now();
+          var hhmm =
+              "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
+          room.lastBeat.value = hhmm;
+          var data = map?["data"];
+          var interval = data is Map ? (data["heartbeat_interval"] ?? "") : "";
+          room.lastResult.value =
+              "心跳成功${interval == "" ? "" : "（间隔${interval}s）"}";
+          _addLog(room.roomId, "心跳成功");
+          return;
+        }
+      } catch (e) {
+        tried.add("$url => 异常 $e");
       }
-      var now = DateTime.now();
-      var hhmm = "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
-      room.lastBeat.value = hhmm;
-      if (code == 0) {
-        var interval = (res is Map && res["data"] is Map)
-            ? (res["data"]["heartbeat_interval"] ?? "")
-            : "";
-        room.lastResult.value = "心跳成功${interval == "" ? "" : "（间隔${interval}s）"}";
-        _addLog(room.roomId, "心跳成功");
-      } else {
-        var msg = (res is Map ? res["message"] ?? res["msg"] : "") ?? "";
-        room.lastResult.value = "心跳失败: $msg";
-        _addLog(room.roomId, "心跳失败 code=$code $msg");
-      }
-    } catch (e) {
-      room.lastResult.value = "心跳异常: $e";
-      _addLog(room.roomId, "心跳异常: $e");
     }
+    room.lastResult.value = "心跳失败（详见日志）";
+    _addLog(room.roomId, "心跳失败: ${tried.join(" | ")}");
   }
 
   void _addLog(String room, String text) {

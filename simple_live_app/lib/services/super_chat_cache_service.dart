@@ -1,17 +1,18 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:get/get.dart';
 import 'package:hive/hive.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_core/simple_live_core.dart';
 
 /// 醒目留言（SC）本地缓存
 ///
 /// 语义：**留在直播间期间不计时**，只有退出直播间后才开始计算缓存有效期（5小时）。
-/// - 进入房间：加载该房间的缓存 SC（需要重新展示）
-/// - 房间内：新 SC 持续写入缓存，不做过期
-/// - 退出房间：记录退出时间（开始 5 小时倒计时）
-/// - 再次进入：若距上次退出不足 5 小时，重新展示这些 SC；超过则丢弃
+///
+/// 存储：`<应用数据目录>/shared/sc_cache.json`（**多开实例共享同一份**）。
+/// 早期版本存在各实例自己的 Hive box 里，初始化时会自动迁移。
 class SuperChatCacheService extends GetxService {
   static SuperChatCacheService get instance =>
       Get.find<SuperChatCacheService>();
@@ -19,17 +20,30 @@ class SuperChatCacheService extends GetxService {
   /// 退出直播间后的缓存有效期：5 小时
   static const Duration ttl = Duration(hours: 5);
 
-  /// 每个房间最多缓存的条数（防止异常情况下无限增长，正常使用几乎不会触发）
+  /// 每个房间最多缓存的条数
   static const int maxPerRoom = 500;
 
-  static const String _boxName = "SuperChatCache";
+  /// 旧版本（实例私有）box 名，仅用于迁移
+  static const String _legacyBoxName = "SuperChatCache";
+  static const String _fileName = "sc_cache.json";
 
-  Box? _box;
+  File? _file;
+
+  /// 房间key -> {"leftAt": int?, "items": [...]}
+  Map<String, dynamic> _data = {};
 
   Future<SuperChatCacheService> init() async {
     try {
-      _box = await Hive.openBox(_boxName);
+      var dir = await getApplicationSupportDirectory();
+      var sharedDir = Directory("${dir.path}${Platform.pathSeparator}shared");
+      if (!await sharedDir.exists()) {
+        await sharedDir.create(recursive: true);
+      }
+      _file = File("${sharedDir.path}${Platform.pathSeparator}$_fileName");
+      await _reload();
+      await _migrateFromLegacyBox();
       await prune();
+      Log.d("SC缓存初始化: ${_data.length}个房间 (${_file!.path})");
     } catch (e) {
       Log.logPrint("SC缓存初始化失败: $e");
     }
@@ -38,25 +52,83 @@ class SuperChatCacheService extends GetxService {
 
   String _roomKey(String siteId, String roomId) => "${siteId}_$roomId";
 
-  Map? _readRoom(String siteId, String roomId) {
+  Future<void> _reload() async {
     try {
-      var raw = _box?.get(_roomKey(siteId, roomId));
-      if (raw is Map) {
-        return Map.from(raw);
+      var f = _file;
+      if (f == null || !await f.exists()) {
+        _data = {};
+        return;
+      }
+      var text = await f.readAsString();
+      if (text.trim().isEmpty) {
+        _data = {};
+        return;
+      }
+      var decoded = jsonDecode(text);
+      _data = decoded is Map ? Map<String, dynamic>.from(decoded) : {};
+    } catch (e) {
+      Log.logPrint("读取SC缓存文件失败: $e");
+      _data = {};
+    }
+  }
+
+  Future<void> _persist() async {
+    try {
+      var f = _file;
+      if (f == null) {
+        return;
+      }
+      var tmp = File("${f.path}.tmp");
+      await tmp.writeAsString(jsonEncode(_data), flush: true);
+      await tmp.rename(f.path);
+    } catch (e) {
+      Log.logPrint("写入SC缓存文件失败: $e");
+    }
+  }
+
+  /// 把旧版本（实例私有 Hive）的数据合并进共享文件
+  Future<void> _migrateFromLegacyBox() async {
+    try {
+      if (!Hive.isBoxOpen(_legacyBoxName)) {
+        return;
+      }
+      var box = Hive.box(_legacyBoxName);
+      if (box.isEmpty) {
+        return;
+      }
+      var merged = 0;
+      for (var key in box.keys) {
+        var raw = box.get(key);
+        if (raw is! Map) {
+          continue;
+        }
+        var k = key.toString();
+        if (_data.containsKey(k)) {
+          continue; // 已存在的不覆盖
+        }
+        _data[k] = Map<String, dynamic>.from(raw);
+        merged++;
+      }
+      if (merged > 0) {
+        await _persist();
+        Log.d("SC缓存迁移: 从旧box合并 $merged 个房间");
       }
     } catch (e) {
-      Log.logPrint("读取SC缓存失败: $e");
+      Log.logPrint("SC缓存迁移失败: $e");
     }
-    return null;
+  }
+
+  Map? _readRoom(String siteId, String roomId) {
+    var raw = _data[_roomKey(siteId, roomId)];
+    return raw is Map ? Map<String, dynamic>.from(raw) : null;
   }
 
   /// 读取某个房间的缓存SC
-  ///
-  /// [leftAt] 为空表示还没退出过房间（不计时），此时直接返回并开始计时。
-  /// 退出超过 [ttl] 的缓存会被丢弃。
   List<LiveSuperChatMessage> load(String siteId, String roomId) {
     var result = <LiveSuperChatMessage>[];
     try {
+      // 读之前先同步文件（其它实例可能刚写过）
+      _reloadSync();
       var room = _readRoom(siteId, roomId);
       var roomKey = _roomKey(siteId, roomId);
       if (room == null) {
@@ -74,14 +146,14 @@ class SuperChatCacheService extends GetxService {
       if (leftAt is int) {
         var leftTime = DateTime.fromMillisecondsSinceEpoch(leftAt * 1000);
         if (now.difference(leftTime) > ttl) {
-          // 退出太久了，丢弃
-          _box?.delete(_roomKey(siteId, roomId));
+          _data.remove(roomKey);
+          _persist();
           return result;
         }
       } else {
-        // 没记录退出时间（例如进程被强制结束）：从现在开始计时
         room["leftAt"] = now.millisecondsSinceEpoch ~/ 1000;
-        _box?.put(_roomKey(siteId, roomId), room);
+        _data[roomKey] = room;
+        _persist();
       }
       for (var item in items) {
         if (item is! Map) {
@@ -98,14 +170,31 @@ class SuperChatCacheService extends GetxService {
     return result;
   }
 
+  /// 同步读取（load 是同步 API，避免大改调用方）
+  void _reloadSync() {
+    try {
+      var f = _file;
+      if (f == null || !f.existsSync()) {
+        return;
+      }
+      var text = f.readAsStringSync();
+      if (text.trim().isEmpty) {
+        return;
+      }
+      var decoded = jsonDecode(text);
+      if (decoded is Map) {
+        _data = Map<String, dynamic>.from(decoded);
+      }
+    } catch (e) {
+      Log.logPrint("同步读取SC缓存失败: $e");
+    }
+  }
+
   /// 保存一条SC（房间内调用，不计时）
   Future<void> save(
       String siteId, String roomId, LiveSuperChatMessage sc) async {
     try {
-      if (_box == null) {
-        Log.logPrint("SC缓存不可用（box 未打开），跳过写入");
-        return;
-      }
+      await _reload();
       var key = _roomKey(siteId, roomId);
       var room = _readRoom(siteId, roomId) ?? {"leftAt": null, "items": []};
       var items = <Map>[];
@@ -121,9 +210,9 @@ class SuperChatCacheService extends GetxService {
         items = items.sublist(items.length - maxPerRoom);
       }
       room["items"] = items;
-      // 还在房间里：不计时
       room["leftAt"] = null;
-      await _box!.put(key, room);
+      _data[key] = room;
+      await _persist();
       Log.d("SC缓存写入: $key 共${items.length}条");
     } catch (e) {
       Log.logPrint("保存SC缓存失败: $e");
@@ -134,9 +223,7 @@ class SuperChatCacheService extends GetxService {
   Future<void> remove(
       String siteId, String roomId, LiveSuperChatMessage target) async {
     try {
-      if (_box == null) {
-        return;
-      }
+      await _reload();
       var key = _roomKey(siteId, roomId);
       var room = _readRoom(siteId, roomId);
       if (room == null) {
@@ -150,11 +237,12 @@ class SuperChatCacheService extends GetxService {
       var targetKey = signature(target);
       items.removeWhere((item) => signatureOfEncoded(item["sc"]) == targetKey);
       if (items.isEmpty) {
-        await _box!.delete(key);
+        _data.remove(key);
       } else {
         room["items"] = items;
-        await _box!.put(key, room);
+        _data[key] = room;
       }
+      await _persist();
     } catch (e) {
       Log.logPrint("移除SC缓存失败: $e");
     }
@@ -163,9 +251,7 @@ class SuperChatCacheService extends GetxService {
   /// 退出直播间：开始计算 5 小时有效期
   Future<void> markLeft(String siteId, String roomId) async {
     try {
-      if (_box == null) {
-        return;
-      }
+      await _reload();
       var key = _roomKey(siteId, roomId);
       var room = _readRoom(siteId, roomId);
       if (room == null) {
@@ -173,11 +259,13 @@ class SuperChatCacheService extends GetxService {
       }
       var items = room["items"];
       if (items is! List || items.isEmpty) {
-        await _box!.delete(key);
+        _data.remove(key);
+        await _persist();
         return;
       }
       room["leftAt"] = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      await _box!.put(key, room);
+      _data[key] = room;
+      await _persist();
     } catch (e) {
       Log.logPrint("记录SC缓存退出时间失败: $e");
     }
@@ -186,27 +274,25 @@ class SuperChatCacheService extends GetxService {
   /// 清理退出超过有效期的缓存
   Future<void> prune() async {
     try {
-      if (_box == null) {
-        return;
-      }
       var now = DateTime.now();
-      var expiredKeys = <dynamic>[];
-      for (var key in _box!.keys) {
-        var raw = _box!.get(key);
+      var changed = false;
+      for (var key in _data.keys.toList()) {
+        var raw = _data[key];
         if (raw is! Map) {
           continue;
         }
         var leftAt = raw["leftAt"];
         if (leftAt is! int) {
-          continue; // 还在房间里（或未记录），不清理
+          continue;
         }
         var leftTime = DateTime.fromMillisecondsSinceEpoch(leftAt * 1000);
         if (now.difference(leftTime) > ttl) {
-          expiredKeys.add(key);
+          _data.remove(key);
+          changed = true;
         }
       }
-      for (var key in expiredKeys) {
-        await _box!.delete(key);
+      if (changed) {
+        await _persist();
       }
     } catch (e) {
       Log.logPrint("清理SC缓存失败: $e");
