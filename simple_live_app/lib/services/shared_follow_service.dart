@@ -33,6 +33,10 @@ class SharedFollowService extends GetxService {
   Timer? _timer;
   Timer? _publishDebounce;
   int _lastUpdatedAt = 0;
+
+  /// SC关注UID 的独立版本号（避免其他实例用空列表把已有UID覆盖掉）
+  int _scUidsUpdatedAt = 0;
+  String _lastPublishedScUids = "";
   bool _applying = false;
   bool _publishing = false;
   final List<StreamSubscription> _subscriptions = [];
@@ -108,12 +112,19 @@ class SharedFollowService extends GetxService {
       if (updatedAt <= _lastUpdatedAt) {
         updatedAt = _lastUpdatedAt + 1;
       }
+      // SC UID 使用独立版本号：只有内容真的变化时才递增，避免空列表覆盖他人配置
+      var scUidsSignature = scUids.join(",");
+      if (scUidsSignature != _lastPublishedScUids) {
+        _scUidsUpdatedAt = _scUidsUpdatedAt + 1;
+        _lastPublishedScUids = scUidsSignature;
+      }
       var payload = jsonEncode({
         "version": 1,
         "updatedAt": updatedAt,
         "follows": follows,
         "tags": tags,
         "scUids": scUids,
+        "scUidsUpdatedAt": _scUidsUpdatedAt,
       });
       var tmp = File("${_file!.path}.tmp");
       await tmp.writeAsString(payload, flush: true);
@@ -147,6 +158,9 @@ class SharedFollowService extends GetxService {
         return;
       }
       var updatedAt = data["updatedAt"] is int ? data["updatedAt"] as int : 0;
+      if (data["scUidsUpdatedAt"] is int) {
+        _scUidsUpdatedAt = data["scUidsUpdatedAt"] as int;
+      }
       if (!force && updatedAt <= _lastUpdatedAt) {
         return;
       }
@@ -211,7 +225,12 @@ class SharedFollowService extends GetxService {
         }
       }
     }
-    if (rawScUids is List) {
+    var remoteScUidsVersion = data["scUidsUpdatedAt"] is int
+        ? data["scUidsUpdatedAt"] as int
+        : 0;
+    if (rawScUids is List && remoteScUidsVersion > _scUidsUpdatedAt) {
+      _scUidsUpdatedAt = remoteScUidsVersion;
+      _lastPublishedScUids = scUids.join(",");
       await AppSettingsController.instance.replaceScUidList(scUids.toSet());
     }
     Log.d(
