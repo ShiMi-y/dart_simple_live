@@ -39,6 +39,9 @@ class RoutePath {
   /// 视频播放（AV/BV）
   static const kVideo = "/other/video";
 
+  /// 多房间弹幕监控
+  static const kDanmakuMonitor = "/other/danmaku_monitor";
+
   /// 视频播放页
   static const kVideoPlayer = "/video/player";
 

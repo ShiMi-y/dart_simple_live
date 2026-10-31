@@ -128,6 +128,22 @@ class MinePage extends StatelessWidget {
               color: Colors.grey.withAlpha(25),
             ),
             ListTile(
+              leading: const Icon(Icons.forum_outlined),
+              title: const Text("弹幕监控（多房间）"),
+              trailing: const Icon(
+                Icons.chevron_right,
+                color: Colors.grey,
+              ),
+              onTap: () {
+                Get.toNamed(RoutePath.kDanmakuMonitor);
+              },
+            ),
+            Divider(
+              indent: 12,
+              endIndent: 12,
+              color: Colors.grey.withAlpha(25),
+            ),
+            ListTile(
               leading: const Icon(Remix.link),
               title: const Text("链接解析"),
               trailing: const Icon(
