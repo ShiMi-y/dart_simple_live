@@ -155,6 +155,7 @@ class SuperChatCacheService extends GetxService {
         _data[roomKey] = room;
         _persist();
       }
+      var validItems = <Map>[];
       for (var item in items) {
         if (item is! Map) {
           continue;
@@ -162,7 +163,18 @@ class SuperChatCacheService extends GetxService {
         var sc = decode(item["sc"]);
         if (sc != null) {
           result.add(sc);
+          validItems.add(item);
         }
+      }
+      // 清理历史版本写入的无效条目（"sc": null）
+      if (validItems.length != items.length) {
+        if (validItems.isEmpty) {
+          _data.remove(roomKey);
+        } else {
+          room["items"] = validItems;
+          _data[roomKey] = room;
+        }
+        _persist();
       }
     } catch (e) {
       Log.logPrint("读取SC缓存失败: $e");
@@ -311,11 +323,26 @@ class SuperChatCacheService extends GetxService {
     return signature(sc);
   }
 
-  /// 序列化（LiveSuperChatMessage 的 toString 本身就是 JSON）
+  /// 序列化
+  ///
+  /// 注意：不能用 `sc.toString()` —— 它内部 `json.encode` 遇到 DateTime 会抛异常，
+  /// 导致缓存里存成 `"sc": null`（历史版本就是这个 bug，SC 永远恢复不出来）。
+  /// 这里显式转换成可 JSON 化的结构。
   dynamic encode(LiveSuperChatMessage sc) {
     try {
-      return jsonDecode(sc.toString());
+      return {
+        "userName": sc.userName,
+        "face": sc.face,
+        "message": sc.message,
+        "price": sc.price,
+        "startTime": sc.startTime.toIso8601String(),
+        "endTime": sc.endTime.toIso8601String(),
+        "backgroundColor": sc.backgroundColor,
+        "backgroundBottomColor": sc.backgroundBottomColor,
+        "isCustom": sc.isCustom,
+      };
     } catch (e) {
+      Log.logPrint("序列化SC失败: $e");
       return null;
     }
   }
