@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -78,6 +79,12 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
   /// 房间号 -> 标题
   final RxMap<String, String> monitorRoomTitles = RxMap<String, String>();
+
+  /// 房间号 -> 主播名（默认弹幕前缀）
+  final RxMap<String, String> monitorRoomOwners = RxMap<String, String>();
+
+  /// 房间号 -> 自定义前缀（空则用主播名）
+  final RxMap<String, String> monitorRoomPrefixes = RxMap<String, String>();
 
   final Map<String, LiveDanmaku> _monitorDanmaku = {};
 
@@ -220,6 +227,21 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       var saved = LocalStorageService.instance
           .getValue("MonitorRooms_${site}_$roomId", "")
           .toString();
+      var rawPrefixes = LocalStorageService.instance
+          .getValue("MonitorPrefixes_${site}_$roomId", "")
+          .toString();
+      if (rawPrefixes.isNotEmpty) {
+        try {
+          var decoded = jsonDecode(rawPrefixes);
+          if (decoded is Map) {
+            decoded.forEach((k, v) {
+              monitorRoomPrefixes[k.toString()] = v.toString();
+            });
+          }
+        } catch (e) {
+          Log.logPrint("读取监控前缀配置失败: $e");
+        }
+      }
       for (var id in saved.split(",")) {
         var rid = id.trim();
         if (rid.isEmpty || monitorRoomIds.contains(rid)) {
@@ -232,11 +254,29 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     }
   }
 
+  /// 弹幕前缀：自定义 > 主播名 > 房间标题 > 房间号
+  String _monitorPrefix(String rid) {
+    var custom = monitorRoomPrefixes[rid]?.trim() ?? "";
+    if (custom.isNotEmpty) {
+      return custom;
+    }
+    var owner = monitorRoomOwners[rid]?.trim() ?? "";
+    if (owner.isNotEmpty) {
+      return owner;
+    }
+    var title = monitorRoomTitles[rid]?.trim() ?? "";
+    return title.isNotEmpty ? title : rid;
+  }
+
   Future<void> _persistMonitorRooms() async {
     try {
       await LocalStorageService.instance.setValue(
         "MonitorRooms_${site}_$roomId",
         monitorRoomIds.join(","),
+      );
+      await LocalStorageService.instance.setValue(
+        "MonitorPrefixes_${site}_$roomId",
+        jsonEncode(monitorRoomPrefixes),
       );
     } catch (e) {
       Log.logPrint("保存同时监控房间失败: $e");
@@ -268,25 +308,10 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       var title = detail.title.isEmpty ? "房间$rid" : detail.title;
       monitorRoomTitles[rid] = title;
       var danmaku = targetSite.liveSite.getDanmaku();
-      danmaku.onMessage = (msg) {
-        if (msg.type != LiveMessageType.chat) {
-          return;
-        }
-        if (messages.length > 200 && !disableAutoScroll.value) {
-          messages.removeAt(0);
-        }
-        messages.add(
-          MonitorLiveMessage(
-            roomTag: monitorRoomTitles[rid] ?? rid,
-            type: msg.type,
-            userName: msg.userName,
-            message: msg.message,
-            data: msg.data,
-            color: msg.color,
-            userId: msg.userId,
-          ),
-        );
-      };
+      monitorRoomOwners[rid] = detail.userName;
+      // 复用主房间消息处理：SC 卡片 / SC关注UID 标红 / 关键词屏蔽 一并生效
+      danmaku.onMessage =
+          (msg) => onWSMessage(msg, roomTag: _monitorPrefix(rid));
       danmaku.onReady = () {
         messages.add(
           LiveMessage(
@@ -332,6 +357,8 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     _monitorDanmaku.remove(rid);
     monitorRoomIds.remove(rid);
     monitorRoomTitles.remove(rid);
+    monitorRoomOwners.remove(rid);
+    monitorRoomPrefixes.remove(rid);
     await _persistMonitorRooms();
   }
 
@@ -1760,10 +1787,13 @@ ${error?.stackTrace}''');
                 children: monitorRoomIds
                     .map(
                       (rid) => InputChip(
+                        avatar: const Icon(Icons.edit_outlined, size: 14),
                         label: Text(
-                          monitorRoomTitles[rid] ?? rid,
+                          _monitorPrefix(rid),
                           style: const TextStyle(fontSize: 12),
                         ),
+                        tooltip: "点击设置弹幕前缀",
+                        onPressed: () => editMonitorPrefix(rid),
                         onDeleted: () => removeMonitorRoom(rid),
                       ),
                     )
@@ -1876,5 +1906,57 @@ ${error?.stackTrace}''');
         ],
       ),
     );
+  }
+
+  /// 设置某个监控房间的弹幕前缀（留空=使用主播名）
+  Future<void> editMonitorPrefix(String rid) async {
+    var controller = TextEditingController(text: monitorRoomPrefixes[rid] ?? "");
+    var result = await Get.dialog<String>(
+      AlertDialog(
+        title: const Text("弹幕前缀"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "默认使用主播名；留空即恢复默认。",
+              style: Get.textTheme.bodySmall,
+            ),
+            AppStyle.vGap8,
+            TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: "前缀文字",
+                hintText: _monitorPrefix(rid),
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+              onSubmitted: (v) => Get.back(result: v),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Get.back(), child: const Text("取消")),
+          TextButton(
+            onPressed: () => Get.back(result: controller.text),
+            child: const Text("保存"),
+          ),
+        ],
+      ),
+    );
+    if (result == null) {
+      return;
+    }
+    var text = result.trim();
+    if (text.isEmpty) {
+      monitorRoomPrefixes.remove(rid);
+    } else {
+      monitorRoomPrefixes[rid] = text;
+    }
+    await _persistMonitorRooms();
+    SmartDialog.showToast(monitorRoomPrefixes.containsKey(rid)
+        ? "前缀已设为「${monitorRoomPrefixes[rid]}」"
+        : "已恢复默认（主播名）");
   }
 }
