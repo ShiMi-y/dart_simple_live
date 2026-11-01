@@ -560,11 +560,18 @@ class LiveRoomPage extends GetView<LiveRoomController> {
     // SC混入聊天流（复用 SuperChatCard，样式与SC标签页一致；聊天区不显示头像）
     if (message.type == LiveMessageType.superChat &&
         message.data is LiveSuperChatMessage) {
-      return SuperChatCard(
-        message.data as LiveSuperChatMessage,
-        onExpire: null,
-        persist: true,
-        showAvatar: false,
+      var sc = message.data as LiveSuperChatMessage;
+      // 聊天流里的 SC：右键 / 长按复制内容（与 SC 标签页、SC 窗口一致）
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onSecondaryTap: () => controller.copySuperChat(sc),
+        onLongPress: () => controller.copySuperChat(sc),
+        child: SuperChatCard(
+          sc,
+          onExpire: null,
+          persist: true,
+          showAvatar: false,
+        ),
       );
     }
 
