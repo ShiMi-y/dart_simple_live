@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'package:simple_live_app/app/instance.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
 import 'dart:convert';
 
 import 'package:get/get.dart';
@@ -33,6 +36,13 @@ class IntimacyLog {
 ///
 /// 定时检查配置的直播间是否开播；开播后按哔哩哔哩网页心跳接口发送心跳，
 /// 维持在线时长以获取粉丝牌亲密度。需要已登录哔哩哔哩账号。
+class Endpoints {
+  static const String web =
+      "https://api.live.bilibili.com/x/report/click/web/heartbeat";
+  static const String legacy =
+      "https://api.live.bilibili.com/x/report/click/heartbeat";
+}
+
 class IntimacyService extends GetxService {
   static IntimacyService get instance => Get.find<IntimacyService>();
 
@@ -48,38 +58,124 @@ class IntimacyService extends GetxService {
   Timer? _timer;
   bool _ticking = false;
 
+  File? _sharedFile;
+  Timer? _syncTimer;
+
+  /// 只有主实例（实例1）真正执行挂机
+  bool get isOwner => isPrimaryInstance;
+
   Future<void> init() async {
     try {
-      enabled.value =
-          LocalStorageService.instance.getValue(_enabledKey, false) == true;
-      var saved =
-          LocalStorageService.instance.getValue(_roomsKey, "").toString();
-      for (var id in saved.split(",")) {
-        var roomId = id.trim();
-        if (roomId.isEmpty) {
-          continue;
-        }
-        if (rooms.any((e) => e.roomId == roomId)) {
-          continue;
-        }
-        rooms.add(IntimacyRoom(roomId));
+      var dir = await getApplicationSupportDirectory();
+      var sharedDir = Directory("${dir.path}${Platform.pathSeparator}shared");
+      if (!await sharedDir.exists()) {
+        await sharedDir.create(recursive: true);
       }
-      if (enabled.value) {
+      _sharedFile =
+          File("${sharedDir.path}${Platform.pathSeparator}intimacy.json");
+      await _reloadFromShared();
+
+      // 旧版本配置（实例私有）迁移到共享文件
+      await _migrateLegacyConfig();
+
+      // 所有实例都轮询共享配置：实例1负责执行，其它实例仅显示最新状态
+      _syncTimer?.cancel();
+      _syncTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+        _reloadFromShared();
+      });
+
+      if (enabled.value && isOwner) {
         start();
       }
-      Log.d("亲密度挂机初始化: 启用=${enabled.value} 房间=${rooms.length}");
+      Log.d(
+        "亲密度挂机初始化: 实例=$instanceIndex 执行=$isOwner 启用=${enabled.value} 房间=${rooms.length}",
+      );
     } catch (e) {
       Log.logPrint("亲密度挂机初始化失败: $e");
     }
   }
 
-  Future<void> _persist() async {
+  Future<void> _reloadFromShared() async {
     try {
-      await LocalStorageService.instance
-          .setValue(_roomsKey, rooms.map((e) => e.roomId).join(","));
-      await LocalStorageService.instance.setValue(_enabledKey, enabled.value);
+      var f = _sharedFile;
+      if (f == null || !await f.exists()) {
+        return;
+      }
+      var text = await f.readAsString();
+      if (text.trim().isEmpty) {
+        return;
+      }
+      var data = jsonDecode(text);
+      if (data is! Map) {
+        return;
+      }
+      enabled.value = data["enabled"] == true;
+      var rawRooms = data["rooms"];
+      if (rawRooms is List) {
+        var ids = rawRooms.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
+        // 同步本地房间对象（保留已有状态，新增的补上）
+        for (var id in ids) {
+          if (!rooms.any((e) => e.roomId == id)) {
+            rooms.add(IntimacyRoom(id));
+          }
+        }
+        rooms.removeWhere((e) => !ids.contains(e.roomId));
+      }
+      // 状态同步：主实例按配置起停，其它实例不执行
+      if (isOwner && enabled.value && _timer == null && rooms.isNotEmpty) {
+        _startTimerOnly();
+      } else if ((!isOwner || !enabled.value) && _timer != null) {
+        _stopTimerOnly();
+      }
+    } catch (e) {
+      Log.logPrint("读取亲密度共享配置失败: $e");
+    }
+  }
+
+  Future<void> _saveShared() async {
+    try {
+      var f = _sharedFile;
+      if (f == null) {
+        return;
+      }
+      var payload = jsonEncode({
+        "enabled": enabled.value,
+        "rooms": rooms.map((e) => e.roomId).toList(),
+        "updatedBy": instanceIndex,
+        "updatedAt": DateTime.now().millisecondsSinceEpoch,
+      });
+      var tmp = File("${f.path}.tmp");
+      await tmp.writeAsString(payload, flush: true);
+      await tmp.rename(f.path);
+      Log.d("亲密度配置已保存: 实例=$instanceIndex 房间=${rooms.length} 启用=${enabled.value}");
     } catch (e) {
       Log.logPrint("保存亲密度配置失败: $e");
+    }
+  }
+
+  Future<void> _migrateLegacyConfig() async {
+    try {
+      var f = _sharedFile;
+      if (f == null || await f.exists()) {
+        return;
+      }
+      var saved = LocalStorageService.instance.getValue(_roomsKey, "").toString();
+      var enabledLegacy =
+          LocalStorageService.instance.getValue(_enabledKey, false) == true;
+      if (saved.isEmpty && !enabledLegacy) {
+        return;
+      }
+      enabled.value = enabledLegacy;
+      for (var id in saved.split(",")) {
+        var rid = id.trim();
+        if (rid.isNotEmpty && !rooms.any((e) => e.roomId == rid)) {
+          rooms.add(IntimacyRoom(rid));
+        }
+      }
+      await _saveShared();
+      Log.d("亲密度配置已迁移到共享文件");
+    } catch (e) {
+      Log.logPrint("迁移亲密度配置失败: $e");
     }
   }
 
@@ -109,7 +205,7 @@ class IntimacyService extends GetxService {
       room.title.value = title;
     }
     rooms.add(room);
-    await _persist();
+    await _saveShared();
     _checkRoom(room);
     return true;
   }
@@ -124,7 +220,7 @@ class IntimacyService extends GetxService {
       return false;
     }
     rooms.add(IntimacyRoom(id));
-    await _persist();
+    await _saveShared();
     // 立刻检查一次
     _checkRoom(rooms.last);
     return true;
@@ -132,12 +228,12 @@ class IntimacyService extends GetxService {
 
   Future<void> removeRoom(String roomId) async {
     rooms.removeWhere((e) => e.roomId == roomId);
-    await _persist();
+    await _saveShared();
   }
 
   Future<void> setEnabled(bool value) async {
     enabled.value = value;
-    await _persist();
+    await _saveShared();
     if (value) {
       start();
     } else {
@@ -146,26 +242,46 @@ class IntimacyService extends GetxService {
   }
 
   void start() {
-    // 移动端：保持前台服务，避免切后台后定时器被冻结
+    if (!isOwner) {
+      _addLog("-", "当前不是实例1，挂机由实例1执行（本实例仅同步配置）");
+      return;
+    }
+    if (rooms.isEmpty) {
+      _addLog("-", "没有配置直播间，未启动挂机");
+      return;
+    }
     try {
       BackgroundPlayService.start();
     } catch (_) {}
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 60), (_) => _tick());
-    _tick();
-    _addLog("-", "已启动挂机（每 60 秒检查一次）");
+    _startTimerOnly();
+    _addLog("-", "已启动挂机（每 60 秒检查一次，实例$instanceIndex）");
   }
 
-  void stop() {
+  void _startTimerOnly() {
+    if (_timer != null) {
+      return;
+    }
+    _timer = Timer.periodic(const Duration(seconds: 60), (_) => _tick());
+    _tick();
+  }
+
+  void _stopTimerOnly() {
+    _timer?.cancel();
+    _timer = null;
     try {
       BackgroundPlayService.stop();
     } catch (_) {}
-    _timer?.cancel();
-    _timer = null;
+  }
+
+  void stop() {
+    _stopTimerOnly();
     _addLog("-", "已停止挂机");
   }
 
   Future<void> _tick() async {
+    if (!isOwner) {
+      return;
+    }
     if (_ticking || rooms.isEmpty) {
       return;
     }
@@ -260,10 +376,28 @@ class IntimacyService extends GetxService {
     return null;
   }
 
-  String _short(dynamic res) {
-    var text = res?.toString() ?? "";
-    text = text.replaceAll("\n", " ").replaceAll("\r", " ").trim();
-    return text.length > 180 ? "${text.substring(0, 180)}..." : text;
+  /// 校验登录态（顺带记录原因，便于日志定位）
+  Future<bool> _checkLogin() async {
+    try {
+      var cookie = BiliBiliAccountService.instance.cookie;
+      if (cookie.isEmpty) {
+        return false;
+      }
+      var res = await HttpClient.instance.getJson(
+        "https://api.bilibili.com/x/web-interface/nav",
+        header: {"Cookie": cookie, "User-Agent": _ua},
+      );
+      var map = _asMap(res);
+      var data = map?["data"];
+      if (map?["code"] == 0 && data is Map && data["isLogin"] == true) {
+        return true;
+      }
+      _addLog("-", "登录态无效（nav code=${map?["code"]}），请重新登录哔哩哔哩");
+      return false;
+    } catch (e) {
+      _addLog("-", "登录态校验失败: $e");
+      return false;
+    }
   }
 
   Future<void> _sendHeartbeat(IntimacyRoom room) async {
@@ -272,16 +406,12 @@ class IntimacyService extends GetxService {
       room.lastResult.value = "未登录";
       return;
     }
+    if (!await _checkLogin()) {
+      room.lastResult.value = "登录失效";
+      return;
+    }
     var csrf = _cookieValue(cookie, "bili_jct");
     var uid = BiliBiliAccountService.instance.uid.toString();
-    var header = {
-      "Cookie": _filterCookie(cookie),
-      "User-Agent": _ua,
-      "Referer": "https://live.bilibili.com/${room.roomId}",
-      "Origin": "https://live.bilibili.com",
-      "Content-Type": "application/x-www-form-urlencoded",
-    };
-    // 哔哩哔哩的网页心跳要求表单编码（JSON 会被忽略并返回非 JSON）
     var form = {
       "room_id": room.roomId,
       "uid": uid,
@@ -292,24 +422,55 @@ class IntimacyService extends GetxService {
     };
     var query = {"room_id": room.roomId, "csrf": csrf};
 
-    var endpoints = const [
-      "https://api.live.bilibili.com/x/report/click/web/heartbeat",
-      "https://api.live.bilibili.com/x/report/click/heartbeat",
+    // 三种组合依次尝试：csrf 校验需要 cookie 里的 bili_jct，
+    // 但部分 CDN 节点对带 bili_jct 的请求会返回 404 WebProxyNeedLess
+    var attempts = <Map<String, dynamic>>[
+      {"name": "完整Cookie+csrf", "url": Endpoints.web, "cookie": cookie, "csrf": true},
+      {
+        "name": "无bili_jct+csrf",
+        "url": Endpoints.web,
+        "cookie": _filterCookie(cookie),
+        "csrf": true
+      },
+      {
+        "name": "无bili_jct+无csrf",
+        "url": Endpoints.web,
+        "cookie": _filterCookie(cookie),
+        "csrf": false
+      },
+      {
+        "name": "旧接口+csrf",
+        "url": Endpoints.legacy,
+        "cookie": cookie,
+        "csrf": true
+      },
     ];
+
     var tried = <String>[];
-    for (var url in endpoints) {
+    for (var attempt in attempts) {
+      var useCsrf = attempt["csrf"] == true;
       try {
         var res = await HttpClient.instance.postJson(
-          url,
-          queryParameters: query,
-          data: form,
-          header: header,
+          attempt["url"] as String,
+          queryParameters: useCsrf ? query : {"room_id": room.roomId},
+          data: useCsrf
+              ? form
+              : {
+                  "room_id": room.roomId,
+                  "uid": uid,
+                  "platform": "web",
+                  "visit_id": "",
+                },
+          header: {
+            "Cookie": attempt["cookie"] as String,
+            "User-Agent": _ua,
+            "Referer": "https://live.bilibili.com/${room.roomId}",
+            "Origin": "https://live.bilibili.com",
+          },
           formUrlEncoded: true,
         );
         var map = _asMap(res);
         var code = map?["code"];
-        var msg = (map?["message"] ?? map?["msg"] ?? "").toString();
-        tried.add("$url => code=$code $msg | ${_short(res)}");
         if (code == 0) {
           var now = DateTime.now();
           var hhmm =
@@ -319,51 +480,13 @@ class IntimacyService extends GetxService {
           var interval = data is Map ? (data["heartbeat_interval"] ?? "") : "";
           room.lastResult.value =
               "心跳成功${interval == "" ? "" : "（间隔${interval}s）"}";
-          _addLog(room.roomId, "心跳成功");
+          _addLog(room.roomId, "心跳成功（${attempt["name"]}）");
           return;
         }
+        tried.add("${attempt["name"]} => code=$code");
       } catch (e) {
-        tried.add("$url => 异常 $e");
+        tried.add("${attempt["name"]} => 异常 $e");
       }
-    }
-    // 兜底：极简 Cookie（只保留 SESSDATA/buvid*）再试一次
-    try {
-      var simpleKeys = {"SESSDATA", "buvid3", "buvid4", "b_nut"};
-      var simpleParts = <String>[];
-      for (var part in cookie.split(";")) {
-        var kv = part.trim();
-        var idx = kv.indexOf("=");
-        if (idx <= 0) {
-          continue;
-        }
-        if (simpleKeys.contains(kv.substring(0, idx).trim())) {
-          simpleParts.add(kv);
-        }
-      }
-      var res = await HttpClient.instance.postJson(
-        endpoints.first,
-        queryParameters: query,
-        data: form,
-        header: {
-          "Cookie": simpleParts.join("; "),
-          "User-Agent": _ua,
-          "Referer": "https://live.bilibili.com/${room.roomId}",
-        },
-        formUrlEncoded: true,
-      );
-      var map = _asMap(res);
-      if (map?["code"] == 0) {
-        var now = DateTime.now();
-        var hhmm =
-            "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
-        room.lastBeat.value = hhmm;
-        room.lastResult.value = "心跳成功";
-        _addLog(room.roomId, "心跳成功（极简Cookie）");
-        return;
-      }
-      tried.add("极简Cookie => code=${map?["code"]} | ${_short(res)}");
-    } catch (e) {
-      tried.add("极简Cookie => 异常 $e");
     }
     room.lastResult.value = "心跳失败（详见日志）";
     _addLog(room.roomId, "心跳失败: ${tried.join(" | ")}");
@@ -379,6 +502,7 @@ class IntimacyService extends GetxService {
 
   @override
   void onClose() {
+    _syncTimer?.cancel();
     _timer?.cancel();
     super.onClose();
   }
