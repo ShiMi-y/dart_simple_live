@@ -188,6 +188,28 @@ class IntimacyService extends GetxService {
     }
   }
 
+  /// 心跳接口对 Cookie 敏感：带 bili_jct 会命中 B 站 CDN 保护（404 WebProxyNeedLess），
+  /// 因此请求头里剔除 bili_jct，csrf 仍作为参数传递。
+  String _filterCookie(String cookie) {
+    var parts = <String>[];
+    for (var part in cookie.split(";")) {
+      var kv = part.trim();
+      if (kv.isEmpty) {
+        continue;
+      }
+      var idx = kv.indexOf("=");
+      if (idx <= 0) {
+        continue;
+      }
+      var key = kv.substring(0, idx).trim();
+      if (key == "bili_jct") {
+        continue;
+      }
+      parts.add(kv);
+    }
+    return parts.join("; ");
+  }
+
   String _cookieValue(String cookie, String key) {
     for (var part in cookie.split(";")) {
       var kv = part.trim();
@@ -226,7 +248,7 @@ class IntimacyService extends GetxService {
     var csrf = _cookieValue(cookie, "bili_jct");
     var uid = BiliBiliAccountService.instance.uid.toString();
     var header = {
-      "Cookie": cookie,
+      "Cookie": _filterCookie(cookie),
       "User-Agent": _ua,
       "Referer": "https://live.bilibili.com/${room.roomId}",
       "Origin": "https://live.bilibili.com",
@@ -276,6 +298,45 @@ class IntimacyService extends GetxService {
       } catch (e) {
         tried.add("$url => 异常 $e");
       }
+    }
+    // 兜底：极简 Cookie（只保留 SESSDATA/buvid*）再试一次
+    try {
+      var simpleKeys = {"SESSDATA", "buvid3", "buvid4", "b_nut"};
+      var simpleParts = <String>[];
+      for (var part in cookie.split(";")) {
+        var kv = part.trim();
+        var idx = kv.indexOf("=");
+        if (idx <= 0) {
+          continue;
+        }
+        if (simpleKeys.contains(kv.substring(0, idx).trim())) {
+          simpleParts.add(kv);
+        }
+      }
+      var res = await HttpClient.instance.postJson(
+        endpoints.first,
+        queryParameters: query,
+        data: form,
+        header: {
+          "Cookie": simpleParts.join("; "),
+          "User-Agent": _ua,
+          "Referer": "https://live.bilibili.com/${room.roomId}",
+        },
+        formUrlEncoded: true,
+      );
+      var map = _asMap(res);
+      if (map?["code"] == 0) {
+        var now = DateTime.now();
+        var hhmm =
+            "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
+        room.lastBeat.value = hhmm;
+        room.lastResult.value = "心跳成功";
+        _addLog(room.roomId, "心跳成功（极简Cookie）");
+        return;
+      }
+      tried.add("极简Cookie => code=${map?["code"]} | ${_short(res)}");
+    } catch (e) {
+      tried.add("极简Cookie => 异常 $e");
     }
     room.lastResult.value = "心跳失败（详见日志）";
     _addLog(room.roomId, "心跳失败: ${tried.join(" | ")}");
