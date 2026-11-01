@@ -259,14 +259,15 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       return false;
     }
     try {
-      var biliSite = Sites.allSites[Constant.kBiliBili];
-      if (biliSite == null) {
+      // 跟随当前房间的平台：同平台关注的主播可直接加入监控
+      var targetSite = Sites.allSites[site.id] ?? Sites.allSites[Constant.kBiliBili];
+      if (targetSite == null) {
         return false;
       }
-      var detail = await biliSite.liveSite.getRoomDetail(roomId: rid);
+      var detail = await targetSite.liveSite.getRoomDetail(roomId: rid);
       var title = detail.title.isEmpty ? "房间$rid" : detail.title;
       monitorRoomTitles[rid] = title;
-      var danmaku = biliSite.liveSite.getDanmaku();
+      var danmaku = targetSite.liveSite.getDanmaku();
       danmaku.onMessage = (msg) {
         if (msg.type != LiveMessageType.chat) {
           return;
@@ -1742,6 +1743,15 @@ ${error?.stackTrace}''');
                 FilledButton(onPressed: addRoom, child: const Text("添加")),
               ],
             ),
+            AppStyle.vGap8,
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: showMonitorFollowPicker,
+                icon: const Icon(Icons.group_add_outlined, size: 16),
+                label: const Text("从已关注主播选择"),
+              ),
+            ),
             AppStyle.vGap12,
             Obx(
               () => Wrap(
@@ -1775,6 +1785,96 @@ ${error?.stackTrace}''');
         ),
       ),
       isScrollControlled: true,
+    );
+  }
+
+  /// 从「同平台已关注的主播」里选择要同时监控的直播间
+  void showMonitorFollowPicker() {
+    var candidates = DBService.instance
+        .getFollowList()
+        .where((e) =>
+            e.siteId == site.id &&
+            e.roomId != roomId &&
+            !monitorRoomIds.contains(e.roomId))
+        .toList();
+    if (candidates.isEmpty) {
+      SmartDialog.showToast("没有可添加的同平台关注主播");
+      return;
+    }
+    var selected = <String>{};
+    Get.dialog(
+      AlertDialog(
+        title: Text("选择要同时监控的主播（${candidates.length}）"),
+        content: SizedBox(
+          width: 420,
+          height: 420,
+          child: StatefulBuilder(
+            builder: (context, setState) {
+              return ListView.builder(
+                itemCount: candidates.length,
+                itemBuilder: (_, i) {
+                  var user = candidates[i];
+                  var checked = selected.contains(user.roomId);
+                  return CheckboxListTile(
+                    dense: true,
+                    value: checked,
+                    onChanged: (v) {
+                      setState(() {
+                        if (v == true) {
+                          selected.add(user.roomId);
+                        } else {
+                          selected.remove(user.roomId);
+                        }
+                      });
+                    },
+                    title: Text(
+                      user.userName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    subtitle: Text(
+                      "房间 ${user.roomId}",
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                    secondary: user.face.isEmpty
+                        ? const Icon(Icons.person, size: 20)
+                        : ClipOval(
+                            child: Image.network(
+                              user.face,
+                              width: 28,
+                              height: 28,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) =>
+                                  const Icon(Icons.person, size: 20),
+                            ),
+                          ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(),
+            child: const Text("取消"),
+          ),
+          TextButton(
+            onPressed: () async {
+              Get.back();
+              var count = 0;
+              for (var rid in selected) {
+                if (await startMonitorRoom(rid)) {
+                  count++;
+                }
+              }
+              SmartDialog.showToast("已添加 $count 个监控房间");
+            },
+            child: const Text("添加所选"),
+          ),
+        ],
+      ),
     );
   }
 }
