@@ -1,15 +1,17 @@
 import 'dart:async';
-import 'package:simple_live_app/app/instance.dart';
-import 'package:path_provider/path_provider.dart';
-import 'dart:io';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:get/get.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:simple_live_app/app/instance.dart';
 import 'package:simple_live_app/app/log.dart';
+import 'package:simple_live_app/app/sites.dart';
 import 'package:simple_live_app/requests/http_client.dart';
 import 'package:simple_live_app/services/background_play_service.dart';
 import 'package:simple_live_app/services/bilibili_account_service.dart';
 import 'package:simple_live_app/services/local_storage_service.dart';
+import 'package:simple_live_core/simple_live_core.dart';
 
 /// 单个挂机房间
 class IntimacyRoom {
@@ -32,17 +34,12 @@ class IntimacyLog {
   IntimacyLog(this.time, this.room, this.text);
 }
 
-/// 后台自动挂亲密度（哔哩哔哩）
+/// 自动挂亲密度（哔哩哔哩）
 ///
-/// 定时检查配置的直播间是否开播；开播后按哔哩哔哩网页心跳接口发送心跳，
-/// 维持在线时长以获取粉丝牌亲密度。需要已登录哔哩哔哩账号。
-class Endpoints {
-  static const String web =
-      "https://api.live.bilibili.com/x/report/click/web/heartbeat";
-  static const String legacy =
-      "https://api.live.bilibili.com/x/report/click/heartbeat";
-}
-
+/// 机制：对已开播的房间**保持直播间 WebSocket 连接**（内部自带心跳），
+/// 使服务端认为用户持续在观看，从而累计粉丝牌亲密度。
+/// 说明：HTTP 心跳接口（x/report/click/heartbeat）在部分网络下会被 CDN 以
+/// 404 WebProxyNeedLess 拦截，故不作为主路径，仅在连接失败时尝试一次。
 class IntimacyService extends GetxService {
   static IntimacyService get instance => Get.find<IntimacyService>();
 
@@ -52,21 +49,22 @@ class IntimacyService extends GetxService {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
   final RxBool enabled = false.obs;
-
-  /// 连续失败达到上限后暂停（需手动重试或重启应用）
   final RxBool suspended = false.obs;
-  int _consecutiveFailures = 0;
-  static const int maxConsecutiveFailures = 5;
   final RxList<IntimacyRoom> rooms = <IntimacyRoom>[].obs;
   final RxList<IntimacyLog> logs = <IntimacyLog>[].obs;
 
+  int _consecutiveFailures = 0;
+  static const int maxConsecutiveFailures = 5;
+
   Timer? _timer;
+  Timer? _syncTimer;
   bool _ticking = false;
 
   File? _sharedFile;
-  Timer? _syncTimer;
 
-  /// 只有主实例（实例1）真正执行挂机
+  /// 已建立的直播间连接（房间号 -> danmaku）
+  final Map<String, LiveDanmaku> _connections = {};
+
   bool get isOwner => isPrimaryInstance;
 
   Future<void> init() async {
@@ -79,11 +77,8 @@ class IntimacyService extends GetxService {
       _sharedFile =
           File("${sharedDir.path}${Platform.pathSeparator}intimacy.json");
       await _reloadFromShared();
-
-      // 旧版本配置（实例私有）迁移到共享文件
       await _migrateLegacyConfig();
 
-      // 所有实例都轮询共享配置：实例1负责执行，其它实例仅显示最新状态
       _syncTimer?.cancel();
       _syncTimer = Timer.periodic(const Duration(seconds: 10), (_) {
         _reloadFromShared();
@@ -99,6 +94,8 @@ class IntimacyService extends GetxService {
       Log.logPrint("亲密度挂机初始化失败: $e");
     }
   }
+
+  // ---------------- 配置（跨实例共享） ----------------
 
   Future<void> _reloadFromShared() async {
     try {
@@ -117,16 +114,21 @@ class IntimacyService extends GetxService {
       enabled.value = data["enabled"] == true;
       var rawRooms = data["rooms"];
       if (rawRooms is List) {
-        var ids = rawRooms.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
-        // 同步本地房间对象（保留已有状态，新增的补上）
+        var ids = rawRooms
+            .map((e) => e.toString().trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
         for (var id in ids) {
           if (!rooms.any((e) => e.roomId == id)) {
             rooms.add(IntimacyRoom(id));
           }
         }
-        rooms.removeWhere((e) => !ids.contains(e.roomId));
+        var removed = rooms.where((e) => !ids.contains(e.roomId)).toList();
+        for (var r in removed) {
+          _closeConnection(r.roomId);
+          rooms.remove(r);
+        }
       }
-      // 状态同步：主实例按配置起停，其它实例不执行
       if (isOwner && enabled.value && _timer == null && rooms.isNotEmpty) {
         _startTimerOnly();
       } else if ((!isOwner || !enabled.value) && _timer != null) {
@@ -165,12 +167,12 @@ class IntimacyService extends GetxService {
         return;
       }
       var saved = LocalStorageService.instance.getValue(_roomsKey, "").toString();
-      var enabledLegacy =
+      var legacyEnabled =
           LocalStorageService.instance.getValue(_enabledKey, false) == true;
-      if (saved.isEmpty && !enabledLegacy) {
+      if (saved.isEmpty && !legacyEnabled) {
         return;
       }
-      enabled.value = enabledLegacy;
+      enabled.value = legacyEnabled;
       for (var id in saved.split(",")) {
         var rid = id.trim();
         if (rid.isNotEmpty && !rooms.any((e) => e.roomId == rid)) {
@@ -184,6 +186,8 @@ class IntimacyService extends GetxService {
     }
   }
 
+  // ---------------- 房间管理 ----------------
+
   String? parseRoomId(String input) {
     var text = input.trim();
     if (text.isEmpty) {
@@ -196,7 +200,6 @@ class IntimacyService extends GetxService {
     return RegExp(r"^\d+$").hasMatch(text) ? text : null;
   }
 
-  /// 直接按房间号添加（用于「添加本直播间」，无需输入）
   Future<bool> addRoomById(String roomId, {String? title}) async {
     var id = roomId.trim();
     if (id.isEmpty) {
@@ -221,17 +224,11 @@ class IntimacyService extends GetxService {
       _addLog("-", "房间号格式不正确");
       return false;
     }
-    if (rooms.any((e) => e.roomId == id)) {
-      return false;
-    }
-    rooms.add(IntimacyRoom(id));
-    await _saveShared();
-    // 立刻检查一次
-    _checkRoom(rooms.last);
-    return true;
+    return addRoomById(id);
   }
 
   Future<void> removeRoom(String roomId) async {
+    _closeConnection(roomId);
     rooms.removeWhere((e) => e.roomId == roomId);
     await _saveShared();
   }
@@ -246,22 +243,7 @@ class IntimacyService extends GetxService {
     }
   }
 
-  /// 手动重试（清除失败计数并立即执行一次）
-  Future<void> retry() async {
-    _consecutiveFailures = 0;
-    suspended.value = false;
-    _addLog("-", "手动重试挂机");
-    if (!isOwner) {
-      _addLog("-", "当前不是实例1，挂机由实例1执行");
-      return;
-    }
-    await _reloadFromShared();
-    if (rooms.isEmpty) {
-      _addLog("-", "没有配置直播间");
-      return;
-    }
-    _startTimerOnly();
-  }
+  // ---------------- 运行 ----------------
 
   void start() {
     if (!isOwner) {
@@ -296,15 +278,31 @@ class IntimacyService extends GetxService {
   }
 
   void stop() {
+    for (var rid in _connections.keys.toList()) {
+      _closeConnection(rid);
+    }
     _stopTimerOnly();
     _addLog("-", "已停止挂机");
   }
 
-  Future<void> _tick() async {
+  Future<void> retry() async {
+    _consecutiveFailures = 0;
+    suspended.value = false;
+    _addLog("-", "手动重试挂机");
     if (!isOwner) {
+      _addLog("-", "当前不是实例1，挂机由实例1执行");
       return;
     }
-    if (suspended.value) {
+    await _reloadFromShared();
+    if (rooms.isEmpty) {
+      _addLog("-", "没有配置直播间");
+      return;
+    }
+    _startTimerOnly();
+  }
+
+  Future<void> _tick() async {
+    if (!isOwner || suspended.value) {
       return;
     }
     if (_ticking || rooms.isEmpty) {
@@ -318,7 +316,7 @@ class IntimacyService extends GetxService {
       }
       for (var room in rooms) {
         await _checkRoom(room);
-        await Future.delayed(const Duration(milliseconds: 800));
+        await Future.delayed(const Duration(milliseconds: 600));
       }
     } catch (e) {
       Log.logPrint("亲密度检查失败: $e");
@@ -334,11 +332,12 @@ class IntimacyService extends GetxService {
         queryParameters: {"room_id": room.roomId},
         header: {"User-Agent": _ua, "Referer": "https://live.bilibili.com/"},
       );
-      if (info is! Map || info["code"] != 0) {
-        room.lastResult.value = "获取房间信息失败";
+      var map = info is Map ? info : null;
+      if (map == null || map["code"] != 0) {
+        _fail(room, "获取房间信息失败");
         return;
       }
-      var data = info["data"] as Map;
+      var data = map["data"] as Map;
       var title = data["title"]?.toString() ?? "";
       if (title.isNotEmpty) {
         room.title.value = title;
@@ -346,181 +345,71 @@ class IntimacyService extends GetxService {
       var live = data["live_status"] == 1;
       room.live.value = live;
       if (!live) {
+        _closeConnection(room.roomId);
         room.lastResult.value = "未开播";
+        _consecutiveFailures = 0;
         return;
       }
-      await _sendHeartbeat(room);
+      await _ensureConnection(room);
     } catch (e) {
-      room.lastResult.value = "检查失败: $e";
-      Log.logPrint("亲密度检查房间 ${room.roomId} 失败: $e");
+      _fail(room, "检查失败: $e");
     }
   }
 
-  /// 心跳接口对 Cookie 敏感：带 bili_jct 会命中 B 站 CDN 保护（404 WebProxyNeedLess），
-  /// 因此请求头里剔除 bili_jct，csrf 仍作为参数传递。
-  String _filterCookie(String cookie) {
-    var parts = <String>[];
-    for (var part in cookie.split(";")) {
-      var kv = part.trim();
-      if (kv.isEmpty) {
-        continue;
-      }
-      var idx = kv.indexOf("=");
-      if (idx <= 0) {
-        continue;
-      }
-      var key = kv.substring(0, idx).trim();
-      if (key == "bili_jct") {
-        continue;
-      }
-      parts.add(kv);
+  /// 保持直播间连接（内部自带心跳），使服务端认为持续在看
+  Future<void> _ensureConnection(IntimacyRoom room) async {
+    if (_connections.containsKey(room.roomId)) {
+      room.lastResult.value = "已在线（保持连接中）";
+      room.lastBeat.value = _hhmm(DateTime.now());
+      _consecutiveFailures = 0;
+      suspended.value = false;
+      return;
     }
-    return parts.join("; ");
-  }
-
-  String _cookieValue(String cookie, String key) {
-    for (var part in cookie.split(";")) {
-      var kv = part.trim();
-      if (kv.startsWith("$key=")) {
-        return kv.substring(key.length + 1);
-      }
-    }
-    return "";
-  }
-
-  Map? _asMap(dynamic res) {
-    if (res is Map) {
-      return res;
-    }
-    if (res is String) {
-      try {
-        var decoded = jsonDecode(res);
-        return decoded is Map ? decoded : null;
-      } catch (_) {}
-    }
-    return null;
-  }
-
-  /// 校验登录态（顺带记录原因，便于日志定位）
-  Future<bool> _checkLogin() async {
     try {
-      var cookie = BiliBiliAccountService.instance.cookie;
-      if (cookie.isEmpty) {
-        return false;
+      var site = Sites.allSites["bilibili"];
+      if (site == null) {
+        _fail(room, "未找到哔哩哔哩站点");
+        return;
       }
-      var res = await HttpClient.instance.getJson(
-        "https://api.bilibili.com/x/web-interface/nav",
-        header: {"Cookie": cookie, "User-Agent": _ua},
-      );
-      var map = _asMap(res);
-      var data = map?["data"];
-      if (map?["code"] == 0 && data is Map && data["isLogin"] == true) {
-        return true;
+      var detail = await site.liveSite.getRoomDetail(roomId: room.roomId);
+      if (room.title.value.isEmpty) {
+        room.title.value = detail.title;
       }
-      _addLog("-", "登录态无效（nav code=${map?["code"]}），请重新登录哔哩哔哩");
-      return false;
+      var danmaku = site.liveSite.getDanmaku();
+      danmaku.onReady = () {
+        room.lastBeat.value = _hhmm(DateTime.now());
+        room.lastResult.value = "已进入直播间（在线）";
+        _consecutiveFailures = 0;
+        suspended.value = false;
+        _addLog(room.roomId, "已进入直播间，保持在线");
+      };
+      danmaku.onClose = (msg) {
+        _connections.remove(room.roomId);
+        room.lastResult.value = "连接断开";
+        _addLog(room.roomId, "直播间连接断开: $msg");
+      };
+      await danmaku.start(detail.danmakuData);
+      _connections[room.roomId] = danmaku;
+      room.lastBeat.value = _hhmm(DateTime.now());
+      room.lastResult.value = "连接中…";
+      _addLog(room.roomId, "开始保持直播间连接");
     } catch (e) {
-      _addLog("-", "登录态校验失败: $e");
-      return false;
+      _fail(room, "进入直播间失败: $e");
     }
   }
 
-  Future<void> _sendHeartbeat(IntimacyRoom room) async {
-    var cookie = BiliBiliAccountService.instance.cookie;
-    if (cookie.isEmpty) {
-      room.lastResult.value = "未登录";
-      return;
+  void _closeConnection(String roomId) {
+    try {
+      _connections.remove(roomId)?.stop();
+    } catch (e) {
+      Log.logPrint("关闭直播间连接失败: $e");
     }
-    if (!await _checkLogin()) {
-      room.lastResult.value = "登录失效";
-      return;
-    }
-    var csrf = _cookieValue(cookie, "bili_jct");
-    var uid = BiliBiliAccountService.instance.uid.toString();
-    var form = {
-      "room_id": room.roomId,
-      "uid": uid,
-      "csrf": csrf,
-      "csrf_token": csrf,
-      "platform": "web",
-      "visit_id": "",
-    };
-    var query = {"room_id": room.roomId, "csrf": csrf};
+  }
 
-    // 三种组合依次尝试：csrf 校验需要 cookie 里的 bili_jct，
-    // 但部分 CDN 节点对带 bili_jct 的请求会返回 404 WebProxyNeedLess
-    var attempts = <Map<String, dynamic>>[
-      {"name": "完整Cookie+csrf", "url": Endpoints.web, "cookie": cookie, "csrf": true},
-      {
-        "name": "无bili_jct+csrf",
-        "url": Endpoints.web,
-        "cookie": _filterCookie(cookie),
-        "csrf": true
-      },
-      {
-        "name": "无bili_jct+无csrf",
-        "url": Endpoints.web,
-        "cookie": _filterCookie(cookie),
-        "csrf": false
-      },
-      {
-        "name": "旧接口+csrf",
-        "url": Endpoints.legacy,
-        "cookie": cookie,
-        "csrf": true
-      },
-    ];
-
-    var tried = <String>[];
-    for (var attempt in attempts) {
-      var useCsrf = attempt["csrf"] == true;
-      try {
-        var res = await HttpClient.instance.postJson(
-          attempt["url"] as String,
-          queryParameters: useCsrf ? query : {"room_id": room.roomId},
-          data: useCsrf
-              ? form
-              : {
-                  "room_id": room.roomId,
-                  "uid": uid,
-                  "platform": "web",
-                  "visit_id": "",
-                },
-          header: {
-            "Cookie": attempt["cookie"] as String,
-            "User-Agent": _ua,
-            "Referer": "https://live.bilibili.com/${room.roomId}",
-            "Origin": "https://live.bilibili.com",
-          },
-          formUrlEncoded: true,
-        );
-        var map = _asMap(res);
-        var code = map?["code"];
-        if (code == 0) {
-          var now = DateTime.now();
-          var hhmm =
-              "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
-          room.lastBeat.value = hhmm;
-          var data = map?["data"];
-          var interval = data is Map ? (data["heartbeat_interval"] ?? "") : "";
-          room.lastResult.value =
-              "心跳成功${interval == "" ? "" : "（间隔${interval}s）"}";
-          _consecutiveFailures = 0;
-          suspended.value = false;
-          _addLog(room.roomId, "心跳成功（${attempt["name"]}）");
-          return;
-        }
-        tried.add("${attempt["name"]} => code=$code");
-      } catch (e) {
-        tried.add("${attempt["name"]} => 异常 $e");
-      }
-    }
-    room.lastResult.value = "心跳失败（详见日志）";
+  void _fail(IntimacyRoom room, String message) {
+    room.lastResult.value = message;
     _consecutiveFailures++;
-    _addLog(
-      room.roomId,
-      "心跳失败(连续$_consecutiveFailures次): ${tried.join(" | ")}",
-    );
+    _addLog(room.roomId, "$message（连续$_consecutiveFailures次）");
     if (_consecutiveFailures >= maxConsecutiveFailures) {
       suspended.value = true;
       _stopTimerOnly();
@@ -530,6 +419,9 @@ class IntimacyService extends GetxService {
       );
     }
   }
+
+  String _hhmm(DateTime t) =>
+      "${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}";
 
   void _addLog(String room, String text) {
     logs.insert(0, IntimacyLog(DateTime.now(), room, text));
@@ -541,6 +433,9 @@ class IntimacyService extends GetxService {
 
   @override
   void onClose() {
+    for (var rid in _connections.keys.toList()) {
+      _closeConnection(rid);
+    }
     _syncTimer?.cancel();
     _timer?.cancel();
     super.onClose();
