@@ -6,6 +6,10 @@ import 'package:get/get.dart';
 import 'package:lottie/lottie.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:remixicon/remixicon.dart';
+import 'package:simple_live_app/services/intimacy_service.dart';
+import 'package:simple_live_app/services/bilibili_account_service.dart';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
+import 'package:simple_live_app/routes/route_path.dart';
 import 'package:simple_live_app/app/app_style.dart';
 import 'package:simple_live_app/models/monitor_live_message.dart';
 import 'package:simple_live_app/app/constant.dart';
@@ -439,8 +443,11 @@ class LiveRoomPage extends GetView<LiveRoomController> {
         length: controller.site.id == Constant.kBiliBili ? 4 : 3,
         child: Column(
           children: [
-            TabBar(
-              indicatorSize: TabBarIndicatorSize.tab,
+            Row(
+              children: [
+                Expanded(
+                  child: TabBar(
+                    indicatorSize: TabBarIndicatorSize.tab,
               labelPadding: EdgeInsets.zero,
               indicatorWeight: 1.0,
               tabs: [
@@ -463,6 +470,24 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                 const Tab(
                   text: "设置",
                 ),
+              ],
+                  ),
+                ),
+                if (controller.site.id == Constant.kBiliBili)
+                  InkWell(
+                    onTap: () => showIntimacyDialog(Get.context!),
+                    child: Tooltip(
+                      message: "自动挂亲密度",
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Icon(
+                          Icons.favorite_border,
+                          size: 18,
+                          color: Get.theme.colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
             Expanded(
@@ -975,6 +1000,91 @@ class LiveRoomPage extends GetView<LiveRoomController> {
       return "${m.toString().padLeft(2, '0')}分钟${s.toString().padLeft(2, '0')}秒";
     }
     return "${s.toString().padLeft(2, '0')}秒";
+  }
+
+  /// 直播间侧边栏「亲密度」弹窗
+  void showIntimacyDialog(BuildContext context) {
+    var service = IntimacyService.instance;
+    var rid = controller.roomId;
+    var roomTitle = controller.detail.value?.title ?? "";
+
+    Get.dialog(
+      AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.favorite, size: 20, color: Colors.pinkAccent),
+            AppStyle.hGap8,
+            Text("自动挂亲密度"),
+          ],
+        ),
+        content: Obx(() {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "当前直播间：${roomTitle.isEmpty ? rid : roomTitle}",
+                style: Get.textTheme.bodyMedium,
+              ),
+              AppStyle.vGap4,
+              Text(
+                "状态：${service.enabled.value ? "已启用" : "已停用"}"
+                " · 已添加 ${service.rooms.length} 个直播间",
+                style: Get.textTheme.bodySmall,
+              ),
+              AppStyle.vGap8,
+              if (!BiliBiliAccountService.instance.logined.value)
+                Text(
+                  "⚠ 未登录哔哩哔哩，无法发送心跳",
+                  style: TextStyle(
+                    color: Get.theme.colorScheme.error,
+                    fontSize: 12,
+                  ),
+                ),
+              AppStyle.vGap8,
+              Row(
+                children: [
+                  Text("启用挂机", style: Get.textTheme.bodyMedium),
+                  const Spacer(),
+                  Switch(
+                    value: service.enabled.value,
+                    onChanged: (v) => service.setEnabled(v),
+                  ),
+                ],
+              ),
+            ],
+          );
+        }),
+        actions: [
+          Obx(() {
+            var added = service.rooms.any((e) => e.roomId == rid);
+            return TextButton(
+              onPressed: () async {
+                if (added) {
+                  await service.removeRoom(rid);
+                  SmartDialog.showToast("已移除本直播间");
+                } else {
+                  var ok = await service.addRoomById(rid, title: roomTitle);
+                  SmartDialog.showToast(ok ? "已添加本直播间" : "已在监控列表中");
+                }
+              },
+              child: Text(added ? "移除本直播间" : "添加本直播间"),
+            );
+          }),
+          TextButton(
+            onPressed: () {
+              Get.back();
+              Get.toNamed(RoutePath.kIntimacy);
+            },
+            child: const Text("管理全部"),
+          ),
+          TextButton(
+            onPressed: () => Get.back(),
+            child: const Text("关闭"),
+          ),
+        ],
+      ),
+    );
   }
 }
 

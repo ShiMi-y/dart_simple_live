@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:get/get.dart';
 import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/requests/http_client.dart';
+import 'package:simple_live_app/services/background_play_service.dart';
 import 'package:simple_live_app/services/bilibili_account_service.dart';
 import 'package:simple_live_app/services/local_storage_service.dart';
 
@@ -94,6 +95,25 @@ class IntimacyService extends GetxService {
     return RegExp(r"^\d+$").hasMatch(text) ? text : null;
   }
 
+  /// 直接按房间号添加（用于「添加本直播间」，无需输入）
+  Future<bool> addRoomById(String roomId, {String? title}) async {
+    var id = roomId.trim();
+    if (id.isEmpty) {
+      return false;
+    }
+    if (rooms.any((e) => e.roomId == id)) {
+      return false;
+    }
+    var room = IntimacyRoom(id);
+    if (title != null && title.isNotEmpty) {
+      room.title.value = title;
+    }
+    rooms.add(room);
+    await _persist();
+    _checkRoom(room);
+    return true;
+  }
+
   Future<bool> addRoom(String input) async {
     var id = parseRoomId(input);
     if (id == null) {
@@ -126,6 +146,10 @@ class IntimacyService extends GetxService {
   }
 
   void start() {
+    // 移动端：保持前台服务，避免切后台后定时器被冻结
+    try {
+      BackgroundPlayService.start();
+    } catch (_) {}
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 60), (_) => _tick());
     _tick();
@@ -133,6 +157,9 @@ class IntimacyService extends GetxService {
   }
 
   void stop() {
+    try {
+      BackgroundPlayService.stop();
+    } catch (_) {}
     _timer?.cancel();
     _timer = null;
     _addLog("-", "已停止挂机");
