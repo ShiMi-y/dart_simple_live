@@ -77,6 +77,30 @@ class IntimacyPage extends StatelessWidget {
               "多开时配置由所有实例共享，但**仅由实例1执行**挂机（其它实例只显示状态）。",
               style: Get.textTheme.bodySmall,
             ),
+            Obx(
+              () => controller.suspended.value
+                  ? Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              "⚠ 连续失败 5 次，已暂停挂机。请检查登录态后重试",
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => controller.retry(),
+                            child: const Text("重试"),
+                          ),
+                        ],
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
             if (!BiliBiliAccountService.instance.logined.value) ...[
               AppStyle.vGap4,
               Text(

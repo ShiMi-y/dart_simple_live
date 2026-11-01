@@ -402,7 +402,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       }
 
       if (roomTag != null) {
-        // 来自「同时监控」的其它房间：带房间标签加入聊天区，不叠加到当前画面弹幕
+        // 来自「同时监控」的其它房间：带前缀加入聊天区，同时上滚动弹幕
         messages.add(
           MonitorLiveMessage(
             roomTag: roomTag,
@@ -414,6 +414,27 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
             userId: msg.userId,
           ),
         );
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => chatScrollToBottom(),
+        );
+        if (!liveStatus.value || isBackground) {
+          return;
+        }
+        if (!AppSettingsController.instance.danmuEnable.value) {
+          return;
+        }
+        // 其它房间的弹幕加「前缀：」后进入画面弹幕，颜色略淡以便区分
+        addDanmaku([
+          DanmakuContentItem(
+            "$roomTag：${msg.message}",
+            color: Color.fromARGB(
+              220,
+              msg.color.r,
+              msg.color.g,
+              msg.color.b,
+            ),
+          ),
+        ]);
         return;
       }
       messages.add(msg);

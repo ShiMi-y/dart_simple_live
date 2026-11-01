@@ -52,6 +52,11 @@ class IntimacyService extends GetxService {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
   final RxBool enabled = false.obs;
+
+  /// 连续失败达到上限后暂停（需手动重试或重启应用）
+  final RxBool suspended = false.obs;
+  int _consecutiveFailures = 0;
+  static const int maxConsecutiveFailures = 5;
   final RxList<IntimacyRoom> rooms = <IntimacyRoom>[].obs;
   final RxList<IntimacyLog> logs = <IntimacyLog>[].obs;
 
@@ -241,6 +246,23 @@ class IntimacyService extends GetxService {
     }
   }
 
+  /// 手动重试（清除失败计数并立即执行一次）
+  Future<void> retry() async {
+    _consecutiveFailures = 0;
+    suspended.value = false;
+    _addLog("-", "手动重试挂机");
+    if (!isOwner) {
+      _addLog("-", "当前不是实例1，挂机由实例1执行");
+      return;
+    }
+    await _reloadFromShared();
+    if (rooms.isEmpty) {
+      _addLog("-", "没有配置直播间");
+      return;
+    }
+    _startTimerOnly();
+  }
+
   void start() {
     if (!isOwner) {
       _addLog("-", "当前不是实例1，挂机由实例1执行（本实例仅同步配置）");
@@ -280,6 +302,9 @@ class IntimacyService extends GetxService {
 
   Future<void> _tick() async {
     if (!isOwner) {
+      return;
+    }
+    if (suspended.value) {
       return;
     }
     if (_ticking || rooms.isEmpty) {
@@ -480,6 +505,8 @@ class IntimacyService extends GetxService {
           var interval = data is Map ? (data["heartbeat_interval"] ?? "") : "";
           room.lastResult.value =
               "心跳成功${interval == "" ? "" : "（间隔${interval}s）"}";
+          _consecutiveFailures = 0;
+          suspended.value = false;
           _addLog(room.roomId, "心跳成功（${attempt["name"]}）");
           return;
         }
@@ -489,7 +516,19 @@ class IntimacyService extends GetxService {
       }
     }
     room.lastResult.value = "心跳失败（详见日志）";
-    _addLog(room.roomId, "心跳失败: ${tried.join(" | ")}");
+    _consecutiveFailures++;
+    _addLog(
+      room.roomId,
+      "心跳失败(连续$_consecutiveFailures次): ${tried.join(" | ")}",
+    );
+    if (_consecutiveFailures >= maxConsecutiveFailures) {
+      suspended.value = true;
+      _stopTimerOnly();
+      _addLog(
+        "-",
+        "连续失败$maxConsecutiveFailures次，已暂停挂机；请检查登录态后点「重试」，或重启应用",
+      );
+    }
   }
 
   void _addLog(String room, String text) {

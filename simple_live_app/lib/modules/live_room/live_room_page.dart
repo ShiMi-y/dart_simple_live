@@ -1048,6 +1048,30 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                     fontSize: 12,
                   ),
                 ),
+              Obx(
+                () => service.suspended.value
+                    ? Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                "连续失败 5 次已暂停，请检查登录态后重试",
+                                style: TextStyle(
+                                  color: Get.theme.colorScheme.error,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => service.retry(),
+                              child: const Text("重试"),
+                            ),
+                          ],
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
               AppStyle.vGap8,
               Row(
                 children: [
