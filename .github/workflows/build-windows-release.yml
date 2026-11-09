@@ -35,6 +35,8 @@ jobs:
       - name: Build Windows (zip + msix)
         run: |
           cd simple_live_app
+          flutter clean
+          flutter pub get
           flutter_distributor package --platform windows --targets msix,zip --skip-clean
 
       - name: Upload Windows artifact
