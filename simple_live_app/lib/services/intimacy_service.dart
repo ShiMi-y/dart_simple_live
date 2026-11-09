@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:get/get.dart';
 import 'package:path_provider/path_provider.dart';
@@ -9,6 +10,7 @@ import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/app/sites.dart';
 import 'package:simple_live_app/requests/http_client.dart';
 import 'package:simple_live_app/services/background_play_service.dart';
+import 'package:simple_live_app/services/bili_app_sign.dart';
 import 'package:simple_live_app/services/bilibili_account_service.dart';
 import 'package:simple_live_app/services/local_storage_service.dart';
 import 'package:simple_live_core/simple_live_core.dart';
@@ -16,6 +18,9 @@ import 'package:simple_live_core/simple_live_core.dart';
 /// 单个挂机房间
 class IntimacyRoom {
   final String roomId;
+
+  /// 主播 UID（心跳接口需要）
+  String upId = "";
 
   final RxString title = "".obs;
   final RxBool live = false.obs;
@@ -342,6 +347,10 @@ class IntimacyService extends GetxService {
       if (title.isNotEmpty) {
         room.title.value = title;
       }
+      var uid = data["uid"];
+      if (uid != null && uid.toString().isNotEmpty) {
+        room.upId = uid.toString();
+      }
       var live = data["live_status"] == 1;
       room.live.value = live;
       if (!live) {
@@ -351,6 +360,7 @@ class IntimacyService extends GetxService {
         return;
       }
       await _ensureConnection(room);
+      await _sendMobileHeartbeat(room);
     } catch (e) {
       _fail(room, "检查失败: $e");
     }
@@ -395,6 +405,103 @@ class IntimacyService extends GetxService {
       _addLog(room.roomId, "开始保持直播间连接");
     } catch (e) {
       _fail(room, "进入直播间失败: $e");
+    }
+  }
+
+  static const String _appUa =
+      "Mozilla/5.0 BiliDroid/6.73.1 (bbcallen@gmail.com) os/android model/Mi 10 Pro "
+      "mobi_app/android build/6731100 channel/xiaomi innerVer/6731110 osVer/12 network/2";
+
+  String _randStr(int len) {
+    const chars =
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    var rnd = Random();
+    return List.generate(len, (_) => chars[rnd.nextInt(chars.length)]).join();
+  }
+
+  String _uuidStr() {
+    var hex = "0123456789abcdef";
+    var rnd = Random();
+    String seg(int n) => List.generate(n, (_) => hex[rnd.nextInt(16)]).join();
+    return "${seg(8)}-${seg(4)}-${seg(4)}-${seg(4)}-${seg(12)}";
+  }
+
+  /// 哔哩哔哩 App 端观看心跳（累计有效观看时长，进而获得亲密度）
+  ///
+  /// 参考开源实现 fansMedalHelper：live-trace 的 mobileHeartBeat，
+  /// 需要 appkey 签名（sign）与 client_sign（sha512→sha3_512→sha384→sha3_384→blake2b）。
+  Future<void> _sendMobileHeartbeat(IntimacyRoom room) async {
+    try {
+      var cookie = BiliBiliAccountService.instance.cookie;
+      if (cookie.isEmpty) {
+        return;
+      }
+      var now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      var roomId = room.roomId;
+      var data = <String, dynamic>{
+        "platform": "android",
+        "uuid": _uuidStr(),
+        "buvid": _randStr(37).toUpperCase(),
+        "seq_id": "1",
+        "room_id": roomId,
+        "parent_id": "6",
+        "area_id": "283",
+        "timestamp": "${now - 60}",
+        "secret_key": BiliAppSign.heartbeatSecretKey,
+        "watch_time": "60",
+        "up_id": room.upId.isEmpty ? "0" : room.upId,
+        "up_level": "40",
+        "jump_from": "30000",
+        "gu_id": _randStr(43).toLowerCase(),
+        "play_type": "0",
+        "play_url": "",
+        "s_time": "0",
+        "data_behavior_id": "",
+        "data_source_id": "",
+        "up_session": "l:one:live:record:$roomId:${now - 88888}",
+        "visit_id": _randStr(32).toLowerCase(),
+        "watch_status": "%7B%22pk_id%22%3A0%2C%22screen_status%22%3A1%7D",
+        "click_id": _uuidStr(),
+        "session_id": "",
+        "player_type": "0",
+        "client_ts": "$now",
+      };
+      data["client_sign"] = BiliAppSign.clientSign(data);
+      data["access_key"] = "";
+      data["actionKey"] = "appkey";
+      data["appkey"] = BiliAppSign.appkey;
+      data["ts"] = "$now";
+      data["sign"] = BiliAppSign.appSign(data);
+
+      var res = await HttpClient.instance.postJson(
+        "https://live-trace.bilibili.com/xlive/data-interface/v1/heartbeat/mobileHeartBeat",
+        data: data,
+        header: {
+          "Cookie": cookie,
+          "User-Agent": _appUa,
+        },
+        formUrlEncoded: true,
+      );
+      Map? map = res is Map ? res : null;
+      if (map == null && res is String) {
+        try {
+          var decoded = jsonDecode(res);
+          map = decoded is Map ? decoded : null;
+        } catch (_) {}
+      }
+      var code = map?["code"];
+      var message = (map?["message"] ?? map?["msg"] ?? "").toString();
+      if (code == 0) {
+        room.lastBeat.value = _hhmm(DateTime.now());
+        room.lastResult.value = "心跳成功";
+        _consecutiveFailures = 0;
+        suspended.value = false;
+        _addLog(room.roomId, "心跳成功（有效观看 +1 分钟）");
+      } else {
+        _fail(room, "心跳失败 code=$code $message");
+      }
+    } catch (e) {
+      _fail(room, "心跳异常: $e");
     }
   }
 
